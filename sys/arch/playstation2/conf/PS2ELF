@@ -2,6 +2,7 @@
 include "arch/playstation2/conf/PS2"
 
 options PS2_NOSBIOS
+options PS2_MEMSIZE=128
 makeoptions DEFTEXTADDR="0x80100000"
 makeoptions LINKENTRY="-e 0x00100000"
 

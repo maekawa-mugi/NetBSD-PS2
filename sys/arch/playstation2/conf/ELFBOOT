@@ -2,6 +2,8 @@
 include "arch/playstation2/conf/std.playstation2"
 
 options PS2_NOSBIOS
+# Development target: PCSX2 expanded EE memory (not a retail 32 MiB PS2).
+options PS2_MEMSIZE=128
 options INCLUDE_CONFIG_FILE
 # Keep the BIOS ELF loader's low RAM intact until it jumps to start.
 makeoptions DEFTEXTADDR="0x80100000"

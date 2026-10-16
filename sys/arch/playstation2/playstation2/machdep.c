@@ -33,6 +33,7 @@ __KERNEL_RCSID(0, "$NetBSD: machdep.c,v 1.36 2024/03/05 14:15:34 thorpej Exp $")
 #include "opt_kloader.h"
 #include "opt_kloader_kernel_path.h"
 #include "opt_ps2_nosbios.h"
+#include "opt_ps2_memsize.h"
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -61,6 +62,17 @@ __KERNEL_RCSID(0, "$NetBSD: machdep.c,v 1.36 2024/03/05 14:15:34 thorpej Exp $")
 #include <machine/intr.h>/* hardintr_init */
 #include <playstation2/playstation2/sifbios.h>
 #include <playstation2/playstation2/interrupt.h>
+
+#ifndef PS2_MEMSIZE
+#define PS2_MEMSIZE 32
+#endif
+#if PS2_MEMSIZE != 32 && PS2_MEMSIZE != 128
+#error "PS2_MEMSIZE must be 32 or 128 MiB"
+#endif
+#if PS2_MEMSIZE != 32 && !defined(PS2_NOSBIOS)
+#error "expanded RAM requires the SBIOS-free development profile"
+#endif
+#define PS2_RAM_BYTES ((paddr_t)PS2_MEMSIZE * 1024 * 1024)
 
 #if defined KLOADER_KERNEL_PATH && !defined KLOADER
 #error "define KLOADER"
@@ -114,7 +126,7 @@ mach_init(void)
 #endif
 	uvm_md_init();
 
-	physmem = atop(PS2_MEMORY_SIZE);
+	physmem = atop(PS2_RAM_BYTES);
 
 	/*
 	 * Copy exception-dispatch code down to exception vector.
@@ -127,7 +139,12 @@ mach_init(void)
 	 * Load the rest of the available pages into the VM system.
 	 */
 	start = (paddr_t)round_page(MIPS_KSEG0_TO_PHYS(kernend));
-	size = PS2_MEMORY_SIZE - start - BOOTINFO_BLOCK_SIZE;
+	if (start >= PS2_RAM_BYTES - BOOTINFO_BLOCK_SIZE)
+		panic("kernel exceeds configured PS2 RAM");
+	/* Keep the last page reserved, as in the original memory layout.
+	 * With SBIOS this is bootinfo; direct ELF boot does not use bootinfo.
+	 * BOOTINFO_BLOCK_BASE remains fixed at the legacy 32 MiB boundary. */
+	size = PS2_RAM_BYTES - start - BOOTINFO_BLOCK_SIZE;
 	memset((void *)MIPS_PHYS_TO_KSEG1(start), 0, size);
 	    
 	/* kernel itself */
@@ -136,6 +153,7 @@ mach_init(void)
 	/* heap */
 	mem_clusters[1].start = start;
 	mem_clusters[1].size = size;
+	mem_cluster_cnt = 2;
 	/* load */
 	printf("load memory %#x, %#lx\n", start, size);
 	uvm_page_physload(atop(start), atop(start + size),
