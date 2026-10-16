@@ -5,6 +5,8 @@ maxpartitions 8
 maxusers 2 8 64
 
 defflag opt_ps2_nosbios.h PS2_NOSBIOS
+defflag opt_ps2_gsconsole.h PS2_GSCONSOLE
+file arch/playstation2/ee/gs_console.c ps2_gsconsole
 
 
 defflag	debug_playstation2.h		GSFB_DEBUG_MONITOR INTR_DEBUG SIF_DEBUG

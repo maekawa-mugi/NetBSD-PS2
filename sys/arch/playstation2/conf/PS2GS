@@ -1,0 +1,3 @@
+# Direct GS text output, retaining EE SIO for console input and diagnostics.
+include "arch/playstation2/conf/PS2SHELL"
+options PS2_GSCONSOLE

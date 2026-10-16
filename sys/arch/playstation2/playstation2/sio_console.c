@@ -1,4 +1,5 @@
 /* Direct EE SIO console for the SBIOS-free ELF smoke-test configuration. */
+#include "opt_ps2_gsconsole.h"
 #include <sys/cdefs.h>
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -20,6 +21,10 @@ static struct tty *sio_tty;
 static callout_t sio_rx_ch;
 static bool sio_polling;
 
+#ifdef PS2_GSCONSOLE
+void ps2_gs_init(void);
+void ps2_gs_putc(int);
+#endif
 
 static void
 sio_tx(int c)
@@ -28,6 +33,9 @@ sio_tx(int c)
 	while (SIO_ISR & 0x8000)
 		;
 	SIO_TX = c;
+#ifdef PS2_GSCONSOLE
+	ps2_gs_putc(c);
+#endif
 }
 
 static void
@@ -40,6 +48,9 @@ sio_probe(struct consdev *cn)
 static void
 sio_init(struct consdev *cn)
 {
+#ifdef PS2_GSCONSOLE
+	ps2_gs_init();
+#endif
 }
 
 static int
