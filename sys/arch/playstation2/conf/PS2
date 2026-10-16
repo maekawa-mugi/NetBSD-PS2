@@ -1,0 +1,30 @@
+# PS2 hardware profile for a 32 MiB retail console, derived from GENERIC.
+# Requires the port's SBIOS/bootinfo loader, as does GENERIC.
+# For direct ELF boot without SBIOS, use PS2ELF (or minimal ELFBOOT/ELFROOT).
+include "arch/playstation2/conf/GENERIC"
+
+# Keep GS/wscons, USB hubs/HID/ugen, DEV9 HDD/Ethernet, IPv4/IPv6,
+# FFS journaling, NFS/network root, PTYFS, ptys and packet capture.
+# All physical drivers enabled by GENERIC have a PS2 attachment path.
+maxusers 8
+
+# Omit optional filesystem layers from the small-memory base profile.
+no file-system MFS
+no file-system NULLFS
+no file-system UNION
+no file-system KERNFS
+no file-system PROCFS
+
+# Optional virtual devices/services; these are not impossible hardware.
+no pseudo-device npf
+no pseudo-device vnd
+no pseudo-device gif
+no pseudo-device stf
+no pseudo-device swwdog
+
+# Retain embedded configuration, omit verbose sysctl description strings.
+no options SYSCTL_INCLUDE_DESCR
+
+# Local additions belong after the removals above. GENERIC.local, if any,
+# is inherited through GENERIC before this file's overrides.
+cinclude "arch/playstation2/conf/PS2.local"

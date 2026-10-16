@@ -1,0 +1,7 @@
+# Minimal n32 userspace smoke test with an embedded FFS root.
+include "arch/playstation2/conf/ELFBOOT"
+pseudo-device md
+options MEMORY_DISK_HOOKS
+options MEMORY_DISK_IS_ROOT
+options MEMORY_DISK_SERVER=0
+options MEMORY_DISK_ROOT_SIZE=4096

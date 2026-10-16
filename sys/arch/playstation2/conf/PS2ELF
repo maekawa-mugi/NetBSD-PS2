@@ -1,0 +1,44 @@
+# GENERIC -> PS2 -> SBIOS-free direct ELF with an embedded FFS root.
+include "arch/playstation2/conf/PS2"
+
+options PS2_NOSBIOS
+makeoptions DEFTEXTADDR="0x80100000"
+makeoptions LINKENTRY="-e 0x00100000"
+
+# These devices can work on PS2, but their present drivers need SBIOS/IOP
+# services. Omit them only from this SBIOS-free profile, leaf first.
+no wsmouse*
+no wskbd*
+no ums*
+no ukbd*
+no ugen*
+no uhidev*
+no uhub*
+no usb*
+no ohci*
+no wsdisplay*
+no gsfb*
+no wd*
+no atabus*
+no wdc*
+no ukphy*
+no smap*
+no spd*
+no sbus*
+no pseudo-device wsmux
+no options WSEMUL_VT100
+no options FONT_SONY8x16
+no options WS_KERNEL_FG
+no options WS_KERNEL_BG
+
+# No external network interface yet. Keep IP/loopback for local processes.
+no file-system NFS
+no options NFS_BOOT_DHCP
+
+pseudo-device md
+options MEMORY_DISK_HOOKS
+options MEMORY_DISK_IS_ROOT
+options MEMORY_DISK_SERVER=0
+options MEMORY_DISK_ROOT_SIZE=4096
+
+cinclude "arch/playstation2/conf/PS2ELF.local"

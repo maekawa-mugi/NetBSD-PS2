@@ -1,0 +1,4 @@
+# SBIOS/RTE-free development RAM root with an interactive n32 shell.
+include "arch/playstation2/conf/PS2ELF"
+no options MEMORY_DISK_ROOT_SIZE
+options MEMORY_DISK_ROOT_SIZE=24576
