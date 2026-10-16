@@ -1,0 +1,9 @@
+# Native EE-side BSD OHCI/USB, with a polled completion path for bring-up.
+include "arch/playstation2/conf/PS2IOP"
+ohci* at ps2sif?
+usb* at ohci?
+uhub* at usb?
+uhub* at uhub? port ?
+uhidev* at uhub? port ? configuration ? interface ?
+ps2kbd* at uhidev? reportid ?
+ugen* at uhub? port ?

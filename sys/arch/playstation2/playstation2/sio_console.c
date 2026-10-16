@@ -11,6 +11,7 @@
 #include <sys/tty.h>
 #include <dev/cons.h>
 #include <mips/cpuregs.h>
+#include <playstation2/playstation2/sio_console.h>
 
 #define SIO_ISR (*(volatile uint32_t *)MIPS_PHYS_TO_KSEG1(0x1000f130))
 #define SIO_TX (*(volatile uint8_t *)MIPS_PHYS_TO_KSEG1(0x1000f180))
@@ -21,6 +22,15 @@ static struct tty *sio_tty;
 static callout_t sio_rx_ch;
 static bool sio_polling;
 
+/* Both SIO RX and the native USB boot keyboard feed the same line discipline. */
+void
+ps2_console_input(int c)
+{
+	int s = spltty();
+	if (sio_tty != NULL && (sio_tty->t_state & TS_ISOPEN))
+		(*sio_tty->t_linesw->l_rint)(c, sio_tty);
+	splx(s);
+}
 #ifdef PS2_GSCONSOLE
 void ps2_gs_init(void);
 void ps2_gs_putc(int);
