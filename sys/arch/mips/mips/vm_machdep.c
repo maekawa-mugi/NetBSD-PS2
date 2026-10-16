@@ -147,7 +147,7 @@ cpu_lwp_fork(struct lwp *l1, struct lwp *l2, void *stack, size_t stacksize,
 	pcb2->pcb_context.val[_L_SP] = (intptr_t)tf;			/* SP */
 	pcb2->pcb_context.val[_L_RA] =
 	   mips_locore_jumpvec.ljv_lwp_trampoline;			/* RA */
-#if defined(_LP64) || defined(__mips_n32)
+#if (defined(_LP64) || defined(__mips_n32)) && !defined(_MIPS_ARCH_R5900)
 	KASSERT(tf->tf_regs[_R_SR] & MIPS_SR_KX);
 	KASSERT(pcb2->pcb_context.val[_L_SR] & MIPS_SR_KX);
 #endif

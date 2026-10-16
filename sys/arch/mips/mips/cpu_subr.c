@@ -388,6 +388,15 @@ cpu_getmcontext(struct lwp *l, mcontext_t *mcp, unsigned int *flags)
 		gr[_REG_EPC] = ras_pc;
 
 	*flags |= _UC_CPU | _UC_TLSBASE;
+#ifdef _UC_EE
+	for (unsigned int i = 0; i < 32; i++)
+		mcp->__ee_hi[i] = tf->tf_ee_gpr[i][1];
+	mcp->__ee_hi1 = tf->tf_ee_hi1;
+	mcp->__ee_lo1 = tf->tf_ee_lo1;
+	mcp->__ee_sa = tf->tf_ee_sa;
+	mcp->__ee_pad = 0;
+	*flags |= _UC_EE;
+#endif
 
 	/* Save floating point register context, if any. */
 	KASSERT(l == curlwp);
@@ -463,6 +472,17 @@ cpu_setmcontext(struct lwp *l, const mcontext_t *mcp, unsigned int flags)
 	}
 
 	/* Restore the private thread context */
+#ifdef _UC_EE
+	if (flags & _UC_EE) {
+		for (unsigned int i = 1; i < 32; i++) {
+			if (i != _R_K0 && i != _R_K1)
+				tf->tf_ee_gpr[i][1] = mcp->__ee_hi[i];
+		}
+		tf->tf_ee_hi1 = mcp->__ee_hi1;
+		tf->tf_ee_lo1 = mcp->__ee_lo1;
+		tf->tf_ee_sa = mcp->__ee_sa;
+	}
+#endif
 	if (flags & _UC_TLSBASE) {
 		lwp_setprivate(l, (void *)(intptr_t)mcp->_mc_tlsbase);
 	}

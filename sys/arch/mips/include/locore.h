@@ -814,9 +814,21 @@ struct trapframe {
 #define	tf_regs	tf_registers.r_regs
 	uint32_t   tf_ppl;		/* previous priority level */
 	mips_reg_t tf_pad;		/* for 8 byte aligned */
+#ifdef _MIPS_ARCH_R5900
+	/* Scalar slots above remain authoritative for the low 64 bits. */
+	uint64_t tf_ee_gpr[32][2] __aligned(16);
+	uint64_t tf_ee_hi1;
+	uint64_t tf_ee_lo1;
+	uint64_t tf_ee_sa;
+	uint64_t tf_ee_pad;
+#endif
 };
 
 CTASSERT(sizeof(struct trapframe) % (4*sizeof(mips_reg_t)) == 0);
+#ifdef _MIPS_ARCH_R5900
+CTASSERT(offsetof(struct trapframe, tf_ee_gpr) % 16 == 0);
+CTASSERT(__alignof__(struct trapframe) >= 16);
+#endif
 
 /*
  * Stack frame for kernel traps. four args passed in registers.

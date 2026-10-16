@@ -126,6 +126,14 @@ typedef struct {
 	__gregset_t	__gregs;
 	__fpregset_t	__fpregs;
 	__greg_t	_mc_tlsbase;
+#ifdef _MIPS_EE_CONTEXT
+	/* Low halves and HI0/LO0 are in __gregs. k0/k1 remain reserved. */
+	__uint64_t __ee_hi[32];
+	__uint64_t __ee_hi1;
+	__uint64_t __ee_lo1;
+	__uint64_t __ee_sa;
+	__uint64_t __ee_pad;
+#endif
 #if !__mips_n32
 	__greg_t	__mc_unused;
 #endif
@@ -157,6 +165,9 @@ typedef struct {
 #define	_UC_SETSTACK	0x00010000
 #define	_UC_CLRSTACK	0x00020000
 #define	_UC_TLSBASE	0x00040000
+#ifdef _MIPS_EE_CONTEXT
+#define _UC_EE		0x00080000
+#endif
 
 #define	_UC_MACHINE_SP(uc)	((uc)->uc_mcontext.__gregs[_REG_SP])
 #define	_UC_MACHINE_FP(uc)	((uc)->uc_mcontext.__gregs[_REG_S8])
@@ -173,7 +184,11 @@ typedef struct {
 #define	_UC_MACHINE32_SET_PC(uc, pc)	_UC_MACHINE_PC((uc), (pc))
 
 #define	__UCONTEXT_SIZE_O32	(40 + 296 +  56)	/* 392 */
+#ifdef _MIPS_EE_CONTEXT
+#define __UCONTEXT_SIZE_N32	(40 + 856 + 56)	/* 952, PS2 n32 */
+#else
 #define	__UCONTEXT_SIZE_N32	(40 + 568 +  56)	/* 664 */
+#endif
 #define	__UCONTEXT_SIZE_N64	(56 + 576 + 112)	/* 744 */
 
 #ifdef __mips_o32

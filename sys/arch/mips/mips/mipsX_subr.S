@@ -136,6 +136,7 @@ RCSID("$NetBSD: mipsX_subr.S,v 1.121 2026/09/29 06:03:33 skrll Exp $")
 #include <mips/trap.h>
 
 #include "assym.h"
+#include <mips/ee_context.h>
 
 #if defined(MIPS64_OCTEON)
 #include "cpunode.h"			/* for NWDOG */
@@ -745,6 +746,7 @@ NESTED_NOPROFILE(MIPSX(kern_gen_exception), KERNFRAME_SIZ, ra)
  * the compiler does it for us.
  */
 	PTR_SUBU sp, KERNFRAME_SIZ
+	EE_SAVE sp, TF_BASE
 	REG_S	AT, TF_BASE+TF_REG_AST(sp)
 	REG_S	v0, TF_BASE+TF_REG_V0(sp)
 	REG_S	v1, TF_BASE+TF_REG_V1(sp)
@@ -926,6 +928,7 @@ MIPSX(kern_return):
 	REG_L	s7, TF_BASE+TF_REG_S7(sp)
 	REG_L	s8, TF_BASE+TF_REG_S8(sp)
 #endif
+	EE_RESTORE sp, TF_BASE
 	PTR_ADDU sp, KERNFRAME_SIZ
 	eret					# return to interrupted point
 	.set	at
@@ -971,6 +974,7 @@ NESTED_NOPROFILE(MIPSX(kern_nonmaskable_intr), KERNFRAME_SIZ, ra)
  */
 	move	k1, sp				# save for later
 	PTR_L	sp, CPU_INFO_NMI_STACK(k0)	# get NMI stack
+	EE_SAVE sp, TF_BASE
 	REG_S	k1, TF_BASE+TF_REG_SP(sp)
 	REG_S	AT, TF_BASE+TF_REG_AST(sp)
 	REG_S	v0, TF_BASE+TF_REG_V0(sp)
@@ -1105,6 +1109,7 @@ NESTED_NOPROFILE(MIPSX(kern_intr), KERNFRAME_SIZ, ra)
 	 * But we use s0-s2 so need to save them.
 	 */
 	PTR_SUBU sp, KERNFRAME_SIZ
+	EE_SAVE sp, TF_BASE
 	REG_S	AT, TF_BASE+TF_REG_AST(sp)
 	REG_S	v0, TF_BASE+TF_REG_V0(sp)
 	REG_S	v1, TF_BASE+TF_REG_V1(sp)
@@ -1323,6 +1328,11 @@ END(MIPSX(kern_intr))
 NESTED_NOPROFILE(MIPSX(user_reserved_insn), CALLFRAME_SIZ, ra)
 	.set	noat
 	.mask	0x80000000, -4
+#ifdef MIPS3_5900
+	/* The generic fast path does not capture EE extension state. */
+	b MIPSX(user_gen_exception)
+	 nop
+#endif
 	/*
 	 * Save a minimum of registers to see if this is rdhwr $3,$29
 	 */
@@ -1423,6 +1433,7 @@ NESTED_NOPROFILE(MIPSX(user_gen_exception), CALLFRAME_SIZ, ra)
 	/* K1 already has CURLWP (loaded by exception vector from ci_curlwp) */
 	PTR_L	k0, L_PCB(k1)			# XXXuvm_lwp_getuarea
 	PTR_ADDU k0, USPACE - TF_SIZ - CALLFRAME_SIZ
+	EE_SAVE k0, CALLFRAME_SIZ
 	REG_S	AT, CALLFRAME_SIZ+TF_REG_AST(k0)
 	REG_S	v0, CALLFRAME_SIZ+TF_REG_V0(k0)
 MIPSX(user_gen_exception_common):
@@ -1536,6 +1547,7 @@ NESTED_NOPROFILE(MIPSX(user_intr), CALLFRAME_SIZ, ra)
 	/* k1 contains curlwp */
 	PTR_L	k0, L_PCB(k1)			# XXXuvm_lwp_getuarea
 	PTR_ADDU k0, USPACE - TF_SIZ - CALLFRAME_SIZ
+	EE_SAVE k0, CALLFRAME_SIZ
 	REG_S	AT, CALLFRAME_SIZ+TF_REG_AST(k0)	# $1
 	REG_S	v0, CALLFRAME_SIZ+TF_REG_V0(k0)		# $2
 	REG_S	v1, CALLFRAME_SIZ+TF_REG_V1(k0)		# $3
@@ -1730,6 +1742,10 @@ NESTED_NOPROFILE(MIPSX(systemcall), CALLFRAME_SIZ, ra)
 	/* k1 already contains curlwp */
 	PTR_L	k0, L_PCB(k1)			# XXXuvm_lwp_getuarea
 	PTR_ADDU k0, USPACE - TF_SIZ - CALLFRAME_SIZ
+	EE_SAVE k0, CALLFRAME_SIZ
+#ifdef MIPS3_5900
+	REG_S AT, CALLFRAME_SIZ+TF_REG_AST(k0)
+#endif
 	#REG_S	AT, CALLFRAME_SIZ+TF_REG_AST(k0)
 	#.set	at
 	REG_S	v0, CALLFRAME_SIZ+TF_REG_V0(k0)		# syscall #
@@ -2763,6 +2779,7 @@ MIPSX(user_intr_return):
 	REG_L	ra, CALLFRAME_SIZ+TF_REG_RA(k1)		# $31
 	mtc0	k0, MIPS_COP_0_STATUS
 	COP0_SYNC
+	EE_RESTORE k1, CALLFRAME_SIZ
 	eret
 	.set	at
 END(MIPSX(lwp_trampoline))

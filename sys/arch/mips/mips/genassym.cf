@@ -186,6 +186,12 @@ define	S_MIPS3_PG_ASID		ilog2(MIPS3_PG_ASID+1)
 endif
 
 define	TF_SIZ			sizeof(struct trapframe)
+ifdef _MIPS_ARCH_R5900
+define TF_EE_GPR offsetof(struct trapframe, tf_ee_gpr)
+define TF_EE_HI1 offsetof(struct trapframe, tf_ee_hi1)
+define TF_EE_LO1 offsetof(struct trapframe, tf_ee_lo1)
+define TF_EE_SA offsetof(struct trapframe, tf_ee_sa)
+endif
 define	TF_REG_ZERO		offsetof(struct trapframe, tf_regs[_R_ZERO])
 define	TF_REG_AST		offsetof(struct trapframe, tf_regs[_R_AST])
 define	TF_REG_V0		offsetof(struct trapframe, tf_regs[_R_V0])
