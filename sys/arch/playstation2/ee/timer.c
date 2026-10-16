@@ -57,9 +57,7 @@ STATIC int timer0_intr(void *);
 /*
  * EE timer usage
  *	0 ... 100 Hz clock interrupt.
- *      1 ... one shot interrupt for software interrupt for IPL_SOFT
- *	2 ... for IPL_SOFTCLOCK
- *	3 ... for IPL_SOFTNET, IPL_SOFTSERIAL
+ *	1-3 ... unused; software interrupts use the SPL pending flags.
  */
 
 void
@@ -105,46 +103,6 @@ timer0_intr(void *arg)
 	_playstation2_evcnt.clock.ev_count++;
 
 	hardclock(&playstation2_clockframe);
-
-	return (1);
-}
-
-/* one shot timer interrupt for software interrupt */
-int
-timer1_intr(void *arg)
-{
-
-	_reg_write_4(T1_MODE_REG, T_MODE_EQUF | T_MODE_OVFF);
-
-#ifdef __HAVE_FAST_SOFTINTS
-	softintr_dispatch(0); /* IPL_SOFTCLOCK */
-#endif
-
-	return (1);
-}
-
-int
-timer2_intr(void *arg)
-{
-
-	_reg_write_4(T2_MODE_REG, T_MODE_EQUF | T_MODE_OVFF);
-
-#ifdef __HAVE_FAST_SOFTINTS
-	softintr_dispatch(1); /* IPL_SOFTBIO */
-#endif
-	return (1);
-}
-
-int
-timer3_intr(void *arg)
-{
-
-	_reg_write_4(T3_MODE_REG, T_MODE_EQUF | T_MODE_OVFF);
-
-#ifdef __HAVE_FAST_SOFTINTS
-	softintr_dispatch(3); /* IPL_SOFTSERIAL */
-	softintr_dispatch(2); /* IPL_SOFTNET */
-#endif
 
 	return (1);
 }

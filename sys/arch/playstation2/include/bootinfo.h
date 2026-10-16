@@ -26,6 +26,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/* Legacy SBIOS loader ABI: do not relocate bootinfo with expanded RAM. */
 #define PS2_MEMORY_SIZE		(32 * 1024 * 1024)
 
 #define BOOTINFO_BLOCK_SIZE	0x1000

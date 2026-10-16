@@ -47,7 +47,10 @@
  */
 #define	MIPS3_PSL_LOWIPL	(MIPS3_INT_MASK | MIPS_SR_INT_IE)
 
-#if !defined(__mips_o32)
+#if defined(_MIPS_ARCH_R5900)
+/* EE has 64-bit scalar operations in 32-bit VA mode; enable EIE. */
+# define MIPS3_PSL_XFLAGS MIPS_R5900_SR_EIE
+#elif !defined(__mips_o32)
 # define MIPS3_PSL_XFLAGS	(MIPS3_SR_XX | MIPS_SR_KX)
 #else
 # define MIPS3_PSL_XFLAGS	(0)

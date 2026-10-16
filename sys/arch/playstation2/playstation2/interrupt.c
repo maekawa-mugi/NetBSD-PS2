@@ -87,6 +87,7 @@ interrupt_init_bootstrap(void)
 	/* initialize interrupt mask (masked all) */
 	for (i = 0; i < _IPL_N; i++)
 		__icu_mask[i] = 0xffffffff;
+	md_imask = 0xffffffff;
 
 	/* initialize EE embedded device */
 	timer_init();
@@ -103,16 +104,11 @@ interrupt_init(void)
 	evcnt_attach_static(&_playstation2_evcnt.sbus);
 	evcnt_attach_static(&_playstation2_evcnt.dmac);
 
-	/* install software interrupt handler */
-	intc_intr_establish(I_CH10_TIMER1, IPL_SOFTCLOCK, timer1_intr, 0);
-	intc_intr_establish(I_CH11_TIMER2, IPL_SOFTBIO, timer2_intr, 0);
-
-	/* IPL_SOFTNET and IPL_SOFTSERIAL are shared interrupt. */
-	intc_intr_establish(I_CH12_TIMER3, IPL_SOFTNET, timer3_intr, 0);
-
-	/* enable SIF BIOS access */
-	md_imask = ~D_STAT_CIM_BIT(D_CH5_SIF0);
-	mips_cp0_status_write(0x00010801);
+	/* Retain the current IPL; do not bypass the device mask table. */
+	md_imask = __icu_mask[curcpu()->ci_cpl];
+	md_imask_update();
+	mips_cp0_status_write(mips_cp0_status_read() |
+	    0x00010000 | MIPS_INT_MASK_0 | MIPS_INT_MASK_1 | MIPS_SR_INT_IE);
 }
 
 /*
@@ -129,7 +125,7 @@ cpu_intr(int ppl, vaddr_t pc, uint32_t status)
 #endif
 
 	ci = curcpu();
-	ci->ci_idepth++;
+	/* The assembly entry already incremented ci_idepth. */
 	ci->ci_data.cpu_nintr++;
 
 	playstation2_clockframe.intr = (curcpu()->ci_idepth > 1);
@@ -137,32 +133,20 @@ cpu_intr(int ppl, vaddr_t pc, uint32_t status)
 	playstation2_clockframe.pc = pc;
 
 	while (ppl < (ipl = splintr(&ipending))) {
+		/* Dispatch only the selected IPL. Raising to it masks that same
+		 * level in hardware, so md_imask itself cannot select its handlers. */
+		uint32_t dispatch_mask = __icu_mask[ipl - 1] | ~__icu_mask[ipl];
 		splx(ipl);
 		if (ipending & MIPS_INT_MASK_0) {
-			intc_intr(md_imask);
+			intc_intr(dispatch_mask);
 		}
 
 		if (ipending & MIPS_INT_MASK_1) {
 			_playstation2_evcnt.dmac.ev_count++;
-			dmac_intr(md_imask);
+			dmac_intr(dispatch_mask);
 		}
 		(void)splhigh();
 	}
-}
-void
-setsoft(int ipl)
-{
-	const static int timer_map[] = {
-		[IPL_SOFTCLOCK]	= 1,
-		[IPL_SOFTBIO]	= 2,
-		[IPL_SOFTNET]	= 3,
-		[IPL_SOFTSERIAL]= 3,
-	};
-
-	KDASSERT(ipl >= IPL_SOFTCLOCK && ipl <= IPL_SOFTSERIAL);
-
-	/* kick one shot timer */
-	timer_one_shot(timer_map[ipl]);
 }
 
 /*
@@ -182,40 +166,23 @@ md_ipl_register(enum ipl_type type, struct _ipl_holder *holder)
 		new |= (holder[i].mask & ~mask);
 		__icu_mask[i] = new;
 	}
-}
-
-int
-splraise(int npl)
-{
-	int s, opl;
-
-	s = _intr_suspend();
-	opl = md_imask;
-	md_imask = opl | npl;
+	md_imask = __icu_mask[curcpu()->ci_cpl];
 	md_imask_update();
-	_intr_resume(s);
-
-	return (opl);
 }
 
+/* I_MASK and D_STAT.CIM toggle on writes of 1. Never acknowledge D_STAT
+ * status bits here: they are write-one-to-clear and belong to dispatch. */
 void
-splset(int npl)
+md_imask_update(void)
 {
-	int s;
-
-	s = _intr_suspend();
-	md_imask = npl;
-	md_imask_update();
-	_intr_resume(s);
+	uint32_t desired = ~md_imask & __intc_enabled_channel;
+	_reg_write_4(I_MASK_REG, (_reg_read_4(I_MASK_REG) ^ desired) & 0xffff);
+	desired = (~md_imask >> 16) & __dmac_enabled_channel;
+	_reg_write_4(D_STAT_REG,
+	    (((_reg_read_4(D_STAT_REG) >> 16) ^ desired) & 0x3ff) << 16);
+	__asm volatile("sync.p" ::: "memory");
 }
 
-void
-spl0(void)
-{
-
-	splset(0);
-	_spllower(0);
-}
 
 /*
  * SIF BIOS call of interrupt utility.

@@ -781,6 +781,10 @@ mips3_vector_init(const struct splsw *splsw)
 
 	/* Cache error handler */
 	extern char mips3_cache[];
+#ifdef MIPS3_5900
+	/* EE interrupts have a separate vector even without Cause.IV. */
+	extern char mips3_intr[], mips3_intr_end[];
+#endif
 	/*
 	 * Copy down exception vector code.
 	 */
@@ -800,6 +804,15 @@ mips3_vector_init(const struct splsw *splsw)
 
 	memcpy((void *)MIPS_UTLB_MISS_EXC_VEC, mips3_tlb_miss,
 	      mips3_exception_end - mips3_tlb_miss);
+
+#ifdef MIPS3_5900
+	/* EE Core User's Manual, Table 4-1: V_INTERRUPT = 0x80000200.
+	 * The preceding contiguous copy ends before this dedicated slot. */
+	if (mips3_intr_end - mips3_intr > 0x80)
+		panic("startup: Interrupt vector code too large");
+	memcpy((void *)MIPS3_INTR_EXC_VEC, mips3_intr,
+	    mips3_intr_end - mips3_intr);
+#endif
 
 	/*
 	 * Copy locore-function vector.
@@ -1706,7 +1719,7 @@ setregs(struct lwp *l, struct exec_package *pack, vaddr_t stack)
 	tf->tf_regs[_R_PC] = (intptr_t)pack->ep_entry & ~3;
 	tf->tf_regs[_R_T9] = (intptr_t)pack->ep_entry & ~3; /* abicall requirement */
 	tf->tf_regs[_R_SR] = PSL_USERSET;
-#if !defined(__mips_o32)
+#if !defined(__mips_o32) && !defined(_MIPS_ARCH_R5900)
 	/*
 	 * allow 64bit ops in userland for non-O32 ABIs
 	 */
@@ -2148,7 +2161,9 @@ mips_init_lwp0_uarea(void)
 
 	pcb->pcb_context.val[_L_SR] = MIPS_SR_INT_IE
 	    | (ipl_sr_map.sr_bits[IPL_SCHED] ^ MIPS_INT_MASK);
-#ifdef __mips_n32
+#if defined(_MIPS_ARCH_R5900)
+	pcb->pcb_context.val[_L_SR] |= MIPS_R5900_SR_EIE;
+#elif defined(__mips_n32)
 	pcb->pcb_context.val[_L_SR] |= MIPS_SR_KX;
 	l->l_md.md_utf->tf_regs[_R_SR] = MIPS_SR_KX;
 #endif

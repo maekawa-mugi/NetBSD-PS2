@@ -717,6 +717,18 @@ END(baderr64)
  * and ASID bits are implemented.  Assumes that interrupts are disabled.
  */
 LEAF(mips3_cp0_tlb_entry_hi_probe)
+#ifdef MIPS3_5900
+	/* The EE has 64-bit GPRs but only 32-bit CP0 registers. */
+	mfc0	t0, MIPS_COP_0_TLB_HI
+	li	v0, -1
+	mtc0	v0, MIPS_COP_0_TLB_HI
+	COP0_SYNC
+	mfc0	v0, MIPS_COP_0_TLB_HI
+	mtc0	t0, MIPS_COP_0_TLB_HI
+	COP0_SYNC
+	dsll	v0, v0, 32
+	dsrl	v0, v0, 32	/* uint64_t result: zero-extend CP0 value */
+#else
 	dmfc0	t0, MIPS_COP_0_TLB_HI
 	li	v0, -1		/* all 1s */
 #if defined(__mips_isa_rev) && __mips_isa_rev >= 2
@@ -742,6 +754,7 @@ LEAF(mips3_cp0_tlb_entry_hi_probe)
 	srl	v0, v0, 0
 #endif
 #endif /* __mips_o32 */
+#endif /* MIPS3_5900 */
 	jr	ra
 	 nop
 END(mips3_cp0_tlb_entry_hi_probe)
@@ -754,6 +767,17 @@ END(mips3_cp0_tlb_entry_hi_probe)
  * PA bits are implemented.  Assumes that interrupts are disabled.
  */
 LEAF(mips3_cp0_tlb_entry_lo_probe)
+#ifdef MIPS3_5900
+	mfc0	t0, MIPS_COP_0_TLB_LO0
+	li	v0, -64
+	mtc0	v0, MIPS_COP_0_TLB_LO0
+	COP0_SYNC
+	mfc0	v0, MIPS_COP_0_TLB_LO0
+	mtc0	t0, MIPS_COP_0_TLB_LO0
+	COP0_SYNC
+	dsll	v0, v0, 32
+	dsrl	v0, v0, 32
+#else
 	dmfc0	t0, MIPS_COP_0_TLB_LO0
 	li	v0, -64		/* all 1s except low 6 bits */
 	dmtc0	v0, MIPS_COP_0_TLB_LO0
@@ -771,6 +795,7 @@ LEAF(mips3_cp0_tlb_entry_lo_probe)
 	srl	v0, v0, 0
 #endif
 #endif /* __mips_o32 */
+#endif /* MIPS3_5900 */
 	jr	ra
 	 nop
 END(mips3_cp0_tlb_entry_lo_probe)

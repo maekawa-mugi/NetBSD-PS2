@@ -32,87 +32,28 @@
 #include <mips/cache_r5900.h>	
 #include <mips/cpuregs.h>
 
-#define D_STAT_REG	0xb000e010
-#define I_MASK_REG	0xb000f010
-
 	.set	noreorder
 	.text
 	.align 6	/* align cache line size (64B) */
 
-/*
- * md_imask_update:
- *	this function may be called under EXL=1. don't access KSEG2.
- *	
- * void
- * md_imask_update()
- * {
- * 	register u_int32_t cur_mask, bit;
- * 
- * 	cur_mask = (_reg_read_4(I_MASK_REG) & 0xffff) |
- *	    (_reg_read_4(D_STAT_REG) & 0xffff0000);
- *
- *	bit = (cur_mask ^ ~md_imask) | (cur_mask & md_imask);
- *
- * 	_reg_write_4(I_MASK_REG, bit & __intc_enabled_channel);
- * 	_reg_write_4(D_STAT_REG, bit & D_STAT_CIM(__dmac_enabled_channel));
- * }
- */	 	
-LEAF_NOPROFILE(md_imask_update)	
-	lw	a0, _C_LABEL(__intc_enabled_channel)
-	li	a1, I_MASK_REG
-	lw	a3, _C_LABEL(__dmac_enabled_channel)
-	li	a2, D_STAT_REG	
-	lw	t1, 0(a2)	/* D_STAT */
-	lui	t2, 0xffff	
-	lw	t0, 0(a1)	/* I_MASK */
-	sll	a3, a3, 16
-	and	t1, t1, t2
-	lw	t3, _C_LABEL(md_imask)
-	nor	t2, zero, t2
-	and	t0, t0, t2
-	or	t0, t0, t1	/* cur_mask */
-	nor	ta0, zero, t3
-	xor	ta0, ta0, t0	
-	and	t3, t3, t0
-	or	t0, t3, ta0
-	and	t3, t0, a0	/* INTC */
-	and	ta0, t0, a3	/* DMAC */
-	sw	t3, 0(a1)
-	sw	ta0, 0(a2)
-	sync.p	
-	j	ra
-	nop
-END(md_imask_update)		
-
-/*	
- * spllowersofthigh:
- *	this function may be called under EXL=1. don't access KSEG2.	
- * void
- * spllowersofthigh()
- * {
- * 	extern void _splnone(void);
- * 
- * 	md_imask = __icu_mask[IPL_SOFTSERIAL];
- * 	md_imask_update(); 
- * 	_splnone();
- * }
- */	
-NESTED_NOPROFILE(spllowersofthigh, CALLFRAME_SIZ, ra)
-	.mask	0x80000000, -4
-	subu	sp, sp, CALLFRAME_SIZ
-	sw	ra, CALLFRAME_RA(sp)
-	la	a0, _C_LABEL(__icu_mask)
-	lw	a0, 16(a0)
-	sw	a0, _C_LABEL(md_imask)
-	jal	md_imask_update
-	nop
-	lw	ra, CALLFRAME_RA(sp)	
-	li	t0, (MIPS_INT_MASK | MIPS_SR_INT_IE)	
-	mtc0	t0, MIPS_COP_0_STATUS
+LEAF_NOPROFILE(_intr_suspend)
+	mfc0	v0, MIPS_COP_0_STATUS
+	di
 	sync.p
-	j	ra
-	addu	sp, sp, CALLFRAME_SIZ
-END(spllowersofthigh)
+	jr	ra
+	 nop
+END(_intr_suspend)
+
+LEAF_NOPROFILE(_intr_resume)
+	lui	v0, 1		/* Status.EIE, bit 16 */
+	and	v0, v0, a0
+	beqz	v0, 1f
+	 nop
+	ei
+	sync.p
+1:	jr	ra
+	 nop
+END(_intr_resume)
 
 #ifdef KLOADER
 /*

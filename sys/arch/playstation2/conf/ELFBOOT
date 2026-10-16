@@ -1,0 +1,17 @@
+# Direct ELF boot smoke test: EE CPU and SIO only, no SBIOS or IOP services.
+include "arch/playstation2/conf/std.playstation2"
+
+options PS2_NOSBIOS
+options INCLUDE_CONFIG_FILE
+# Keep the BIOS ELF loader's low RAM intact until it jumps to start.
+makeoptions DEFTEXTADDR="0x80100000"
+# ExecPS2 enters user mode; start through the BIOS-mapped low alias.
+# locore clears KSU before transferring to linked KSEG0 kernel code.
+makeoptions LINKENTRY="-e 0x00100000"
+maxusers 8
+file-system FFS
+
+mainbus0 at root
+cpu0 at mainbus?
+
+config netbsd root on ? type ?

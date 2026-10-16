@@ -31,7 +31,4 @@
 
 void timer_init(void);
 void timer_clock_init(void);
-int timer1_intr(void *);
-int timer2_intr(void *);
-int timer3_intr(void *);
 void timer_one_shot(int);

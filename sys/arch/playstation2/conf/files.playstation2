@@ -4,6 +4,9 @@ maxpartitions 8
 
 maxusers 2 8 64
 
+defflag opt_ps2_nosbios.h PS2_NOSBIOS
+
+
 defflag	debug_playstation2.h		GSFB_DEBUG_MONITOR INTR_DEBUG SIF_DEBUG
 					SMAP_DEBUG EMAC3_DEBUG
 
@@ -17,12 +20,14 @@ file arch/playstation2/playstation2/cpu.c		cpu
 
 file arch/playstation2/playstation2/autoconf.c
 file arch/playstation2/playstation2/interrupt.c
+file arch/playstation2/playstation2/playstation2_spl.c
 file arch/playstation2/playstation2/bus_space.c
 file arch/playstation2/playstation2/bus_dma.c
 file arch/playstation2/playstation2/clock.c
 file arch/playstation2/playstation2/disksubr.c		disk
 file arch/playstation2/playstation2/machdep.c
-file arch/playstation2/playstation2/sifbios.c
+file arch/playstation2/playstation2/sifbios.c !ps2_nosbios
+file arch/playstation2/playstation2/ee_support.c
 file arch/mips/mips/mips3_clock.c
 
 file dev/bus_dma/bus_dmamem_common.c
@@ -40,8 +45,8 @@ defflag	debug_kloader.h			KLOADER_DEBUG
 file	arch/playstation2/ee/intc.c
 file	arch/playstation2/ee/dmac.c
 file	arch/playstation2/ee/timer.c
-file	arch/playstation2/ee/gs.c
-file	arch/playstation2/ee/sif.c
+file	arch/playstation2/ee/gs.c !ps2_nosbios
+file	arch/playstation2/ee/sif.c !ps2_nosbios
 
 #
 #	PlayStation 2 internal devices (optional)
@@ -64,7 +69,7 @@ file	arch/playstation2/dev/ohci_sbus.c		ohci_sbus
 define	spd {}
 device	spd: spd
 attach	spd at sbus
-file	arch/playstation2/dev/spd.c
+file	arch/playstation2/dev/spd.c			spd
 
 define	emac3
 file	arch/playstation2/dev/emac3.c			emac3
@@ -77,7 +82,8 @@ attach	smap at spd
 file	arch/playstation2/dev/if_smap.c			smap
 
 # Console autoconfiguration code: selects between a framebuffers
-file	arch/playstation2/playstation2/console.c
+file	arch/playstation2/playstation2/console.c !ps2_nosbios
+file	arch/playstation2/playstation2/sio_console.c ps2_nosbios
 file	dev/cons.c
 file	dev/cninit.c
 

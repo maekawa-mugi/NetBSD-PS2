@@ -86,13 +86,21 @@ EXPORT_OBJECT(kernel_text)			# libkvm refers this
 	mtc0	zero, MIPS_COP_0_CAUSE
 	COP0_SYNC
 
+#ifdef MIPS3_5900
+	/* Direct ELF entry may be the low BIOS-mapped alias. Leave it before
+	 * clearing the TLB; J/JAL alone preserve the caller's address region. */
+	PTR_LA	k0, 1f
+	jr	k0
+	 nop
+1:
+#endif
 #if defined(_LP64)
 	/* Enable 64-bit addressing */
 	mfc0	k0, MIPS_COP_0_STATUS
 	MFC0_HAZARD
 	or	k0, MIPS_SR_KX | MIPS_SR_UX
 	mtc0	k0, MIPS_COP_0_STATUS
-#elif defined(__mips_n32)
+#elif defined(__mips_n32) && !defined(MIPS3_5900)
         mfc0    k0, MIPS_COP_0_STATUS
         MFC0_HAZARD
         or      k0, MIPS_SR_KX

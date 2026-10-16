@@ -119,7 +119,7 @@ mips_fpu_state_save(lwp_t *l)
 	 * save FPCSR and FP register values.
 	 */
 #if !defined(__mips_soft_float)
-#if !defined(__mips_o32)
+#if !defined(__mips_o32) && !defined(_MIPS_ARCH_R5900)
 	if (tf->tf_regs[_R_SR] & MIPS3_SR_FR) {
 		KASSERT(_MIPS_SIM_NEWABI_P(l->l_proc->p_md.md_abi));
 		fp[32] = fpcsr;
@@ -159,9 +159,9 @@ mips_fpu_state_save(lwp_t *l)
 			"sdc1	$f31, (31*%d1)(%0)	;"
 			".set reorder" :: "r"(fp), "i"(sizeof(fp[0])));
 	} else
-#endif /* !defined(__mips_o32) */
+#endif /* !__mips_o32 && !_MIPS_ARCH_R5900 */
 	{
-		KASSERT(!_MIPS_SIM_NEWABI_P(l->l_proc->p_md.md_abi));
+		KASSERT((tf->tf_regs[_R_SR] & MIPS3_SR_FR) == 0);
 		((int *)fp)[32] = fpcsr;
 		__asm volatile (
 			".set noreorder			;"
@@ -249,7 +249,7 @@ mips_fpu_state_load(lwp_t *l, u_int flags)
 	 * load FP registers and establish processes' FP context.
 	 */
 #if !defined(__mips_soft_float)
-#if !defined(__mips_o32)
+#if !defined(__mips_o32) && !defined(_MIPS_ARCH_R5900)
 	if (tf->tf_regs[_R_SR] & MIPS3_SR_FR) {
 		KASSERT(_MIPS_SIM_NEWABI_P(l->l_proc->p_md.md_abi));
 		__asm volatile (
@@ -291,7 +291,7 @@ mips_fpu_state_load(lwp_t *l, u_int flags)
 	} else
 #endif
 	{
-		KASSERT(!_MIPS_SIM_NEWABI_P(l->l_proc->p_md.md_abi));
+		KASSERT((tf->tf_regs[_R_SR] & MIPS3_SR_FR) == 0);
 		__asm volatile (
 			".set noreorder			;"
 			"lwc1	$f0, (0*%d1)(%0)	;"

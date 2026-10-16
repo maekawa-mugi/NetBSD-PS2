@@ -87,6 +87,9 @@ __KERNEL_RCSID(0, "$NetBSD: cache.c,v 1.70 2026/07/01 17:07:01 rkujawa Exp $");
 #ifdef MIPS3_PLUS
 #include <mips/cache_r4k.h>
 #include <mips/cache_r5k.h>
+#ifdef MIPS3_5900
+#include <mips/cache_r5900.h>
+#endif
 #ifdef ENABLE_MIPS4_CACHE_R10K
 #include <mips/cache_r10k.h>
 #endif
@@ -382,6 +385,46 @@ mips_config_cache_prehistoric(void)
 #endif /* MIPS1 */
 
 #if defined(MIPS3) || defined(MIPS4)
+	case MIPS_R5900:
+#ifdef MIPS3_5900
+		/* EE Core User's Manual, Tables 6-1 and 6-2. */
+		mci->mci_picache_size = CACHE_R5900_SIZE_I;
+		mci->mci_picache_line_size = CACHE_R5900_LSIZE_I;
+		mci->mci_picache_ways = 2;
+		mci->mci_pdcache_size = CACHE_R5900_SIZE_D;
+		mci->mci_pdcache_line_size = CACHE_R5900_LSIZE_D;
+		mci->mci_pdcache_ways = 2;
+		mci->mci_icache_virtual_alias =
+		    CACHE_R5900_SIZE_I / 2 > PAGE_SIZE;
+		mci->mci_cache_virtual_alias =
+		    CACHE_R5900_SIZE_D / 2 > PAGE_SIZE;
+
+		mco->mco_icache_sync_all = r5900_icache_sync_all_64;
+		mco->mco_icache_sync_range = r5900_icache_sync_range_64;
+		mco->mco_icache_sync_range_index =
+		    r5900_icache_sync_range_index_64;
+		mco->mco_pdcache_wbinv_all = r5900_pdcache_wbinv_all_64;
+		mco->mco_pdcache_wbinv_range = r5900_pdcache_wbinv_range_64;
+		mco->mco_pdcache_wbinv_range_index =
+		    r5900_pdcache_wbinv_range_index_64;
+		mco->mco_pdcache_inv_range = r5900_pdcache_inv_range_64;
+		mco->mco_pdcache_wb_range = r5900_pdcache_wb_range_64;
+		mco->mco_intern_icache_sync_range =
+		    r5900_icache_sync_range_64;
+		mco->mco_intern_icache_sync_range_index =
+		    r5900_icache_sync_range_index_64;
+		mco->mco_intern_pdcache_sync_all =
+		    r5900_pdcache_wbinv_all_64;
+		mco->mco_intern_pdcache_sync_range =
+		    r5900_pdcache_wb_range_64;
+		mco->mco_intern_pdcache_sync_range_index =
+		    r5900_pdcache_wbinv_range_index_64;
+		mco->mco_intern_pdcache_wbinv_range_index =
+		    r5900_pdcache_wbinv_range_index_64;
+		break;
+#else
+		panic("R5900 cache support not configured");
+#endif
 	case MIPS_R4100:
 		if ((mips3_cp0_config_read() & MIPS3_CONFIG_CS) != 0)
 			csizebase = MIPS3_CONFIG_C_4100BASE;

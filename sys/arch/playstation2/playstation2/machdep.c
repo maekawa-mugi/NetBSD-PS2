@@ -32,6 +32,7 @@ __KERNEL_RCSID(0, "$NetBSD: machdep.c,v 1.36 2024/03/05 14:15:34 thorpej Exp $")
 #include "opt_ddb.h"
 #include "opt_kloader.h"
 #include "opt_kloader_kernel_path.h"
+#include "opt_ps2_nosbios.h"
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -68,8 +69,6 @@ __KERNEL_RCSID(0, "$NetBSD: machdep.c,v 1.36 2024/03/05 14:15:34 thorpej Exp $")
 #include <machine/kloader.h>
 #endif
 
-struct cpu_info cpu_info_store;
-
 struct vm_map *phys_map;
 phys_ram_seg_t mem_clusters[VM_PHYSSEG_MAX];
 int mem_cluster_cnt;
@@ -102,7 +101,9 @@ mach_init(void)
 	interrupt_init_bootstrap();
 
 	/* enable SIF BIOS */
+#ifndef PS2_NOSBIOS
 	sifbios_init();
+#endif
 
 	consinit();
 
@@ -120,7 +121,7 @@ mach_init(void)
 	 * Initialize locore-function vector.
 	 * Clear out the I and D caches.
 	 */
-	mips_vector_init(NULL, false);
+	mips_vector_init(&playstation2_splsw, false);
 
 	/*
 	 * Load the rest of the available pages into the VM system.
@@ -151,6 +152,7 @@ mach_init(void)
 	 * Allocate uarea page for lwp0 and set it.
 	 */
 	v = uvm_pageboot_alloc(USPACE);
+	lwp0.l_addr = (void *)v;
 
 	pcb0 = lwp_getpcb(&lwp0);
 	pcb0->pcb_context.val[_L_SR] = PSL_LOWIPL;	/* SR */
@@ -218,6 +220,7 @@ cpu_reboot(int howto, char *bootstr)
 
 	pmf_system_shutdown(boothowto);
 
+#ifndef PS2_NOSBIOS
 	if ((howto & RB_POWERDOWN) == RB_POWERDOWN)
 		sifbios_halt(0); /* power down */
 	else if (howto & RB_HALT)
@@ -229,6 +232,10 @@ cpu_reboot(int howto, char *bootstr)
 #endif
 		sifbios_halt(2); /* reset */
 	}
+#else
+	printf("SBIOS unavailable; CPU halted.\n");
+	(void)_intr_suspend();
+#endif
 
 	while (1)
 		;

@@ -6,6 +6,7 @@
 device-major	mem		char 0
 device-major	swap		char 1   block 0	vmswap
 device-major	cons		char 2
+device-major	eesio		char 9			ps2_nosbios
 device-major	ctty		char 3
 device-major	filedesc	char 4
 device-major	log		char 5

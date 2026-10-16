@@ -27,6 +27,7 @@
  */
 
 #include <sys/cdefs.h>
+#include "opt_ps2_nosbios.h"
 __KERNEL_RCSID(0, "$NetBSD: autoconf.c,v 1.9 2014/07/04 07:27:57 martin Exp $");
 
 #include <sys/param.h>
@@ -47,7 +48,9 @@ cpu_configure(void)
 	interrupt_init();
 
 	/* Enable SIF BIOS for IOP access */
+#ifndef PS2_NOSBIOS
 	sif_init();
+#endif
 
 	if (config_rootfound("mainbus", NULL) == NULL)
 		panic("no mainbus found");

@@ -147,7 +147,7 @@ RCSID("$NetBSD: mipsX_subr.S,v 1.121 2026/09/29 06:03:33 skrll Exp $")
 #error use locore_mips1.S
 #endif
 
-#if defined(__mips_o32)
+#if defined(__mips_o32) || defined(MIPS3_5900)
 #define	RESET_EXCEPTION_LEVEL_DISABLE_INTERRUPTS(reg) \
 	mtc0 zero, MIPS_COP_0_STATUS
 #define	SET_EXCEPTION_LEVEL(reg) \
@@ -186,7 +186,9 @@ RCSID("$NetBSD: mipsX_subr.S,v 1.121 2026/09/29 06:03:33 skrll Exp $")
  */
 #if (MIPS3 + MIPS64 + MIPS64R2) > 0
 #define	USE_64BIT_INSTRUCTIONS
+#ifndef MIPS3_5900
 #define	USE_64BIT_CP0_FUNCTIONS
+#endif
 #elif (MIPS32 + MIPS32R2) > 0
 #ifdef _LP64
 #error	MIPS32 and MIPS32R2 can't run 64-bit kernels.
@@ -578,7 +580,21 @@ VECTOR(MIPSX(xtlb_miss), unknown)
 	.set	at
 _VECTOR_END(MIPSX(xtlb_miss))
 #else
+#ifdef MIPS3_5900
+	/* EE virtual addresses and CP0 are 32-bit; this vector is unreachable. */
+VECTOR(MIPSX(xtlb_miss), unknown)
+	PTR_LA	k0, _C_LABEL(panic)
+	PTR_LA	a0, 1f
+	jr	k0
+	 nop
+_VECTOR_END(MIPSX(xtlb_miss))
+	.space	128 - (. - MIPSX(xtlb_miss))
+	.pushsection .rodata
+1:	.asciz	"R5900: unexpected XTLB exception"
+	.popsection
+#else
 	.space	128
+#endif
 #endif /* USE_64BIT_CP0_FUNCTIONS */
 #endif /* !MIPS3_LOONGSON2 */
 
@@ -1203,6 +1219,11 @@ NESTED_NOPROFILE(MIPSX(kern_intr), KERNFRAME_SIZ, ra)
 #endif /* PARANOIA */
 
 #ifdef __HAVE_FAST_SOFTINTS
+#ifdef MIPS3_5900
+	/* EE has no software interrupt Cause bits. */
+	jal	_C_LABEL(playstation2_softintr_dispatch)
+	 srl	a0, s0, 8
+#else
 	and	a0, s1, MIPS_SOFT_INT_MASK	# were softints enabled?
 	beqz	a0, 4f				#   nope
 	 nop
@@ -1233,6 +1254,7 @@ NESTED_NOPROFILE(MIPSX(kern_intr), KERNFRAME_SIZ, ra)
 	 li	a0, -2
 #endif /* __HAVE_PREEMPTION */
 4:
+#endif /* MIPS3_5900 */
 #endif /* __HAVE_FAST_SOFTINTS */
 	/*
 	 * Interrupts handled, restore registers and return from the interrupt.
@@ -1607,6 +1629,10 @@ NESTED_NOPROFILE(MIPSX(user_intr), CALLFRAME_SIZ, ra)
 	INT_S	zero, CPU_INFO_IDEPTH(t0)
 
 #ifdef __HAVE_FAST_SOFTINTS
+#ifdef MIPS3_5900
+	jal	_C_LABEL(playstation2_softintr_dispatch)
+	 li	a0, IPL_NONE
+#else
 	/*
 	 * This an interrupt from user mode so both softints must be enabled.
 	 * No need to check (unless we're being paranoid).
@@ -1625,6 +1651,7 @@ NESTED_NOPROFILE(MIPSX(user_intr), CALLFRAME_SIZ, ra)
 	jal	_C_LABEL(softint_process)	# softint_process(pending)
 	 nop
 4:
+#endif /* MIPS3_5900 */
 #endif
 	/*
 	 * Disable interrupts

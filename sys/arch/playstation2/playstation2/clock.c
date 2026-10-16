@@ -30,6 +30,7 @@
 __KERNEL_RCSID(0, "$NetBSD: clock.c,v 1.12 2023/11/05 21:54:27 andvar Exp $");
 
 #include "debug_playstation2.h"
+#include "opt_ps2_nosbios.h"
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -44,14 +45,18 @@ __KERNEL_RCSID(0, "$NetBSD: clock.c,v 1.12 2023/11/05 21:54:27 andvar Exp $");
 
 #include <playstation2/ee/timervar.h>
 
+#ifndef PS2_NOSBIOS
 static int get_bootinfo_tod(todr_chip_handle_t, struct clock_ymdhms *);
+#endif
 
 void
 cpu_initclocks(void)
 {
-	struct todr_chip_handle	todr = {
+#ifndef PS2_NOSBIOS
+	static struct todr_chip_handle todr = {
 		.todr_gettime_ymdhms = get_bootinfo_tod,
 	};
+#endif
 
 	/*
 	 *  PS2 R5900 CPU clock is 294.912 MHz = (1 << 15) * 9 * 1000
@@ -63,7 +68,9 @@ cpu_initclocks(void)
 	/* Install clock interrupt */
 	timer_clock_init();
 
+#ifndef PS2_NOSBIOS
 	todr_attach(&todr);
+#endif
 
 	mips3_init_tc();
 }
@@ -74,6 +81,7 @@ setstatclockrate(int arg)
 	/* not yet */
 }
 
+#ifndef PS2_NOSBIOS
 static int
 get_bootinfo_tod(todr_chip_handle_t tch, struct clock_ymdhms *dt)
 {
@@ -99,3 +107,4 @@ get_bootinfo_tod(todr_chip_handle_t tch, struct clock_ymdhms *dt)
 #endif
 	return 0;
 }
+#endif

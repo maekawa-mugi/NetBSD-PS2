@@ -151,8 +151,8 @@ intc_update_mask(u_int32_t mask)
 
 	cur_mask = _reg_read_4(I_MASK_REG);
 
-	_reg_write_4(I_MASK_REG, ((cur_mask ^ ~mask) | (cur_mask & mask)) &
-	    __intc_enabled_channel);
+	_reg_write_4(I_MASK_REG,
+	    (cur_mask ^ (~mask & __intc_enabled_channel)) & 0xffff);
 }
 
 void *
@@ -180,7 +180,8 @@ intc_intr_establish(enum intc_channel ch, int ipl, int (*func)(void *),
 			__intc_ipl_holder[i].mask |= bit;
 
 	/* insert queue IPL order */
-	if (SLIST_EMPTY(&__intc_dispatcher_head)) {
+	if (SLIST_EMPTY(&__intc_dispatcher_head) ||
+	    SLIST_FIRST(&__intc_dispatcher_head)->ipl < ipl) {
 		SLIST_INSERT_HEAD(&__intc_dispatcher_head, dispatcher, link);
 	} else {
 		SLIST_FOREACH(d, &__intc_dispatcher_head, link) {
@@ -194,8 +195,8 @@ intc_intr_establish(enum intc_channel ch, int ipl, int (*func)(void *),
 
 	md_ipl_register(IPL_INTC, __intc_ipl_holder);
 
-	intc_intr_enable(ch);
 	__intc_enabled_channel |= bit;
+	md_imask_update();
 
 	_intr_resume(s);
 

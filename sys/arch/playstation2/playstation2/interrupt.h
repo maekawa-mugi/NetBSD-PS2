@@ -54,7 +54,10 @@ extern struct clockframe playstation2_clockframe;
 
 void interrupt_init_bootstrap(void);
 void interrupt_init(void);
-void softintr_dispatch(int);
+void playstation2_softintr_dispatch(int);
+extern const struct splsw playstation2_splsw;
+extern u_int32_t __icu_mask[_IPL_N];
+extern volatile u_int32_t md_imask;
 
 /* for SIF BIOS */
 void _sif_call_start(void);

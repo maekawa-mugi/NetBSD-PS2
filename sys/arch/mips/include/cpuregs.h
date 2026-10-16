@@ -299,6 +299,9 @@
 #define	MIPS3_SR_ERL		0x00000004
 #define	MIPS3_SR_EXL		0x00000002
 
+/* EE Status has EIE here, instead of the R4000 parity-error control. */
+#define MIPS_R5900_SR_EIE	0x00010000
+
 #define	MIPS_SR_SOFT_RESET	MIPS3_SR_SOFT_RESET
 #define	MIPS_SR_DIAG_CH		MIPS3_SR_DIAG_CH
 #define	MIPS_SR_DIAG_CE		MIPS3_SR_DIAG_CE

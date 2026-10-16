@@ -180,11 +180,9 @@ dmac_update_mask(u_int32_t mask)
 {
 	u_int32_t cur_mask;
 
-	mask = D_STAT_CIM(mask);
-	cur_mask = _reg_read_4(D_STAT_REG);
-	
-	_reg_write_4(D_STAT_REG, ((cur_mask ^ ~mask) | (cur_mask & mask)) &
-	    D_STAT_CIM(__dmac_enabled_channel));
+	mask = ~D_STAT_CIM(mask) & __dmac_enabled_channel;
+	cur_mask = D_STAT_CIM(_reg_read_4(D_STAT_REG));
+	_reg_write_4(D_STAT_REG, ((cur_mask ^ mask) & 0x3ff) << 16);
 }
 
 void *
@@ -212,7 +210,8 @@ dmac_intr_establish(enum dmac_channel ch, int ipl, int (*func)(void *),
 	}
 
 	/* insert queue IPL order */
-	if (SLIST_EMPTY(&__dmac_dispatcher_head)) {
+	if (SLIST_EMPTY(&__dmac_dispatcher_head) ||
+	    SLIST_FIRST(&__dmac_dispatcher_head)->ipl < ipl) {
 		SLIST_INSERT_HEAD(&__dmac_dispatcher_head, dispatcher, link);
 	} else {
 		SLIST_FOREACH(d, &__dmac_dispatcher_head, link) {
@@ -226,8 +225,8 @@ dmac_intr_establish(enum dmac_channel ch, int ipl, int (*func)(void *),
 
 	md_ipl_register(IPL_DMAC, __dmac_ipl_holder);
 
-	dmac_intr_enable(ch);
 	__dmac_enabled_channel |= D_STAT_CIS_BIT(ch);
+	md_imask_update();
 
 	_intr_resume(s);
 	
