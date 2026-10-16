@@ -3569,6 +3569,14 @@ mips_expand_thread_pointer (rtx tp)
 {
   rtx fn;
 
+#ifdef NETBSD_OS_CPP_BUILTINS_ELF
+  /* On EE the RDHWR encoding is SQ, not a reserved instruction.  Use the
+     existing NetBSD syscall wrapper rather than relying on RI emulation. */
+  if (TARGET_MIPS5900)
+    return emit_library_call_value (init_one_libfunc ("_lwp_getprivate"),
+                                    tp, LCT_NORMAL, Pmode);
+#endif
+
   if (TARGET_MIPS16)
     {
       if (!mips16_rdhwr_stub)

@@ -3,7 +3,7 @@
 .if defined(LIB) && (${LIB} == "kern" || ${LIB} == "c" || ${LIB} == "pthread" \
 	|| ${LIB} == "rump")
 
-.if !${MACHINE_MIPS64}
+.if !${MACHINE_MIPS64} || ${MACHINE} == "playstation2"
 SRCS+=	atomic_add_32_cas.c atomic_add_32_nv_cas.c \
 	atomic_and_32_cas.c atomic_and_32_nv_cas.c \
 	atomic_dec_32_cas.c atomic_dec_32_nv_cas.c \
@@ -30,7 +30,9 @@ SRCS+=	membar_ops.S
 
 .if defined(LIB) && (${LIB} == "c" || ${LIB} == "pthread")
 
-.if !${MACHINE_MIPS64}
+.if ${MACHINE} == "playstation2"
+SRCS+= atomic_cas_r5900.S atomic_init_r5900.c atomic_cas_by_cas32.c
+.elif !${MACHINE_MIPS64}
 SRCS+=	atomic_init_testset.c atomic_cas_up.S
 .else
 SRCS+=	atomic_cas.S atomic_init_cas.c atomic_cas_by_cas32.c

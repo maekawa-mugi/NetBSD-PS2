@@ -23,6 +23,11 @@ CONFIGURE_ARGS=	--disable-nls --disable-werror \
 		--program-transform-name="s,^,${MACHINE_GNU_PLATFORM}-," \
 		${BASE_CONFIGURE_ARGS}
 
+# The EE kernel uses n32 even though playstation2 userland is mipsel/o32.
+.if ${MACHINE} == "playstation2"
+CONFIGURE_ARGS+= --enable-targets=mips64el--netbsd
+.endif
+
 MAKE_ARGS=	MACHINE= MAKEINFO=${TOOL_MAKEINFO:Q}
 
 ALL_TARGET=	all-binutils all-gas all-ld

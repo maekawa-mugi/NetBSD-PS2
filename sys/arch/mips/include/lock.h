@@ -67,7 +67,7 @@ __cpu_simple_lock_set(__cpu_simple_lock_t *__ptr)
 	*__ptr = __SIMPLELOCK_LOCKED;
 }
 
-#ifndef _HARDKERNEL
+#if !defined(_HARDKERNEL) && !defined(_MIPS_ARCH_R5900)
 
 static __inline int
 __cpu_simple_lock_try(__cpu_simple_lock_t *lp)
@@ -100,7 +100,7 @@ __cpu_simple_lock_try(__cpu_simple_lock_t *lp)
 	return (v0 != 0);
 }
 
-#else	/* !_HARDKERNEL */
+#else	/* kernel or R5900: use the platform CAS backend */
 
 u_int	_atomic_cas_uint(volatile u_int *, u_int, u_int);
 u_long	_atomic_cas_ulong(volatile u_long *, u_long, u_long);
@@ -129,7 +129,7 @@ __cpu_simple_lock_try(__cpu_simple_lock_t *lp)
 	    __SIMPLELOCK_UNLOCKED;
 }
 
-#endif	/* _HARDKERNEL */
+#endif	/* generic LL/SC user lock vs. platform CAS backend */
 
 static __inline void
 __cpu_simple_lock_init(__cpu_simple_lock_t *lp)
