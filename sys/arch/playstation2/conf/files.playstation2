@@ -21,6 +21,12 @@ device cpu
 attach cpu at mainbus
 file arch/playstation2/playstation2/cpu.c		cpu
 
+# Independent native SIF transport; does not use sifbios or PS2SDK objects.
+device ps2sif {}
+attach ps2sif at mainbus
+file arch/playstation2/ee/sif_native.c ps2sif
+file arch/playstation2/ee/iopdma_native.c ps2sif
+
 file arch/playstation2/playstation2/autoconf.c
 file arch/playstation2/playstation2/interrupt.c
 file arch/playstation2/playstation2/playstation2_spl.c

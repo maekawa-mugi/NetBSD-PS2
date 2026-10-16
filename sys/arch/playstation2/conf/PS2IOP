@@ -1,0 +1,3 @@
+# Native SIF development, with the existing VGA/SIO RAM-root console.
+include "arch/playstation2/conf/PS2GS"
+ps2sif0 at mainbus?
