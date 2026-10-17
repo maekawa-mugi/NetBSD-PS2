@@ -23,6 +23,7 @@ int ps2sif_exec_irx(const uint32_t *, size_t, const char *, size_t,
 int ps2sif_usb_intr_establish(int (*)(void *), void *);
 void ps2sif_usb_intr_poll(void);
 void ps2sif_usb_intr_stop(void);
+bool ps2sif_usb_intr_active(void);
 /* Reserve once at attach; USB suballocations need no further RPC. */
 bus_dma_tag_t ps2_iopdma_init(uint32_t, size_t);
 #endif

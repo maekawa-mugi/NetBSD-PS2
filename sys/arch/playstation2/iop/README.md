@@ -53,8 +53,14 @@ the sampled sequence, and restores MIE. The IOP never rearms the device or
 acknowledges OHCI status. A later device event remains pending in OHCI and
 asserts IRQ22 on rearm. Sequence comparison recovers a missed SBUS edge;
 duplicates do not rearm twice. Interrupt context performs no RPC or allocation.
-The existing per-tick poll remains enabled for bring-up. Successful IRQ
-delivery therefore does not yet establish reduced polling cost or latency.
+After one initial tick to recover the startup notification, an active relay
+uses a one-second OHCI watchdog. Unavailable/stopped relays use the original
+per-tick poll; a mailbox guard failure switches back at the next watchdog.
+Shutdown reports IRQ versus poll work (nonzero `ohci_intr` results) and poll
+call counts. Attribution runs at IPL_BIO to exclude a nested SBUS interrupt.
+The watchdog checks missed sequences and also polls OHCI status, so an IOP
+stall without mailbox corruption can still be serviced once per second.
+This is a recovery bound, not a low-latency guarantee under faults.
 
 Shutdown stops polling/rearm, masks MIE and removes the EE interrupt handler.
 Detach disconnects children, stops the relay and callout, and then releases
@@ -77,6 +83,7 @@ Host verification:
 python3 tests/ps2/iop_bootstrap_host_test.py
 python3 tests/ps2/sif_native_host_test.py
 python3 tests/ps2/usb_irq_host_test.py
+python3 tests/ps2/ohci_watchdog_host_test.py
 ```
 
 The former tests production EE transaction code with mocked RAM/transport,
@@ -87,3 +94,9 @@ limited to the specified PCSX2 fork and ROM; real hardware remains untested.
 The USB IRQ test compiles production EE and IOP code with mocked MMIO/imports
 to check lost edges, duplicate notifications, rearm races, stop during the
 callback, timeout retention, guards, and registration failures.
+The watchdog test checks one-second versus tick pacing, health failure,
+work attribution, and shutdown. In PCSX2 run60, USB enumeration and the EE
+regressions passed with IRQ work=22, poll work=0 and 19 poll calls over about
+19 guest seconds. The PS2USB baseline (run61) passed with IRQ work=0, poll
+work=21 and 1942 poll calls over about 19 guest seconds after attach. Manual
+typing/latency and real hardware are not validated by those counts.

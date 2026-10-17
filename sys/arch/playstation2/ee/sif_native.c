@@ -607,6 +607,16 @@ ps2sif_usb_intr_poll(void)
 #endif
 }
 
+bool
+ps2sif_usb_intr_active(void)
+{
+#ifdef PS2_IOP_BOOTSTRAP
+	return usb_ready && !usb_stopped;
+#else
+	return false;
+#endif
+}
+
 int
 ps2sif_usb_intr_establish(int (*handler)(void *), void *context)
 {

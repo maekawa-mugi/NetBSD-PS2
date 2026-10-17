@@ -1411,3 +1411,59 @@ netbsd-PS2IOPBOOT.elf
 netbsd-PS2IOPBOOT-jit128.elf
 3046551a963ed3ea1247b3801a8a7488d66b55236dfdcd51f7d8d21f4c01c8d3
 ```
+
+## 2026-10-18: one-second OHCI watchdog and polling comparison
+
+Committed the independent loader/resident USB IRQ implementation as
+`db3fe35991c`. The subsequent change uses a one-second OHCI watchdog when the
+relay is active, preserving one initial tick to recover a startup notification
+that arrived during synchronous module loading. If relay establishment fails,
+or the relay is stopped/corrupt, the attachment schedules its original
+per-tick polling. An IOP stall which leaves mailbox magic/guards intact is
+still covered by the one-second status poll, with corresponding possible
+fault-recovery latency. This is not a runtime IOP heartbeat protocol.
+
+The attachment counts nonzero `ohci_intr` returns separately in IRQ and poll
+context, plus poll invocations. The poll callback runs at IPL_BIO so a nested
+SBUS interrupt cannot be misattributed to polling. Host tests exercise pacing,
+health fallback, work attribution and stopping; the existing relay test now
+also checks the active-state API. Both PS2IOPBOOT and PS2USB build.
+
+Using the same specified PCSX2 EXE/profile and regression command as run59:
+
+| Run | Configuration | Stop time (guest) | IRQ work | Poll work | Poll calls |
+| --- | --- | --- | --- | --- | --- |
+| 60 | PS2IOPBOOT, 1-second watchdog | 19.8399579 s | 22 | 0 | 19 |
+| 61 | PS2USB, tick polling | 20.4199565 s | 0 | 21 | 1942 |
+
+OHCI attaches at guest time 1 s, so both observation periods cover about 19 s.
+Run60 stopped with `IOP=22 SBUS=23 recovered=0 seq=23 ack=23`; the additional
+SBUS notification is the software startup probe. Both runs enumerated PCSX2
+Keyboard as JIS and passed 80 MiB resident/swap=0, JIT rewrite x64/fork-COW/
+EPC-BD, and complete EE integer-context tests, then unmounted and halted.
+This demonstrates enumeration completions handled by IRQ with no watchdog
+work in run60, and preserves the ordinary polling path in run61. Scheduled
+OHCI polling falls from approximately 100 Hz to 1 Hz. These counters do not
+measure input latency or host CPU utilization, and do not prove behavior of
+arbitrary USB transfers, hotplug or a mouse.
+
+Run60's command was accepted at output offset 3695, input consumed=92 bytes,
+output saved=4659 bytes. Run61 used offset 3572, consumed=92, saved=4458.
+Each passed based on actual result lines and halt, not command echo.
+Observation faults were empty; both emulator processes were stopped. No
+Computer Use or generated USB keyboard reports were used.
+
+Artifacts are in the same Windows directory as run59, with new filenames
+`netbsd-PS2IOPBOOT-watchdog.elf`, `netbsd-PS2IOPBOOT-watchdog-jit128.elf`, and
+`netbsd-PS2USB-poll-jit128.elf`. SHA-256 respectively:
+
+```text
+e630ae9dc1cdc5de54bb2b8a82c61517bfe02ebd349a7f03cd9d869671b99664
+2f4db813f51eb7ba3d1ff10a338d548f90002ce37b999b9e3db9f70296d73122
+1db98438ecdd534045cd86ced23f323c572c7ed7c1baf33a848dc4da283cad22
+```
+
+Next validation is USB root-hub detach/re-enumeration, held-key disconnect,
+repeat termination and reconnection, plus manual JIS/focus/input checks with
+the watchdog configuration. Physical hardware and actual OHCI controller
+detach remain untested.

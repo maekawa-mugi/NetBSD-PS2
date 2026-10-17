@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
-/* Native EE-side OHCI attachment, using IOP RAM and bounded tick polling. */
+/* Native EE-side OHCI: IOP IRQ relay with watchdog, or tick polling fallback. */
 #include <sys/cdefs.h>
 #include <sys/param.h>
 #include <sys/device.h>
@@ -21,6 +21,8 @@ struct native_ohci {
 	callout_t poll;
 	bool stopping;
 	bool initialized;
+	bool in_poll;
+	unsigned irq_work, poll_work, polls;
 };
 
 static int
@@ -31,18 +33,33 @@ native_interrupt(void *arg)
 		ps2sif_usb_intr_stop();
 		return 0;
 	}
-	return ohci_intr(&sc->ohci);
+	int work = ohci_intr(&sc->ohci);
+	if (work) {
+		if (sc->in_poll)
+			sc->poll_work++;
+		else
+			sc->irq_work++;
+	}
+	return work;
 }
 
 static void
 native_poll(void *arg)
 {
 	struct native_ohci *sc = arg;
+	/* Attribute work to this watchdog without a nested SBUS handler. */
+	int s = splbio();
 	if (!sc->stopping && !sc->ohci.sc_dying) {
+		sc->polls++;
+		sc->in_poll = true;
 		ps2sif_usb_intr_poll();
-		(void)ohci_intr(&sc->ohci);
-		callout_schedule(&sc->poll, 1);
+		(void)native_interrupt(sc);
+		sc->in_poll = false;
+		if (!sc->stopping && !sc->ohci.sc_dying)
+			callout_schedule(&sc->poll,
+			    ps2sif_usb_intr_active() ? hz : 1);
 	}
+	splx(s);
 }
 
 static bool
@@ -53,6 +70,8 @@ native_shutdown(device_t self, int flags)
 	sc->stopping = true;
 	callout_stop(&sc->poll);
 	ps2sif_usb_intr_stop();
+	aprint_normal_dev(self, "completion work: IRQ=%u poll=%u poll calls=%u\n",
+	    sc->irq_work, sc->poll_work, sc->polls);
 	return ohci_shutdown(self, flags);
 }
 
@@ -95,7 +114,7 @@ native_attach(device_t parent, device_t self, void *aux)
 	sc->sc_size = 0x100;
 	sc->iot = bus_space_create(0, "native IOP OHCI", regs, sc->sc_size);
 	sc->ioh = regs;
-	aprint_normal(": native IOP OHCI, tick-polled completions\n");
+	aprint_normal(": native IOP OHCI\n");
 	bus_space_write_4(sc->iot, sc->ioh, OHCI_INTERRUPT_DISABLE, OHCI_ALL_INTRS);
 	int error = ohci_init(sc);
 	if (error) {
@@ -107,7 +126,7 @@ native_attach(device_t parent, device_t self, void *aux)
 	nsc->initialized = true;
 	error = ps2sif_usb_intr_establish(native_interrupt, nsc);
 	if (!error)
-		aprint_normal_dev(self, "IOP IRQ22/SBUS relay active (tick fallback retained)\n");
+		aprint_normal_dev(self, "IOP IRQ22/SBUS relay active, 1 second watchdog\n");
 	else
 		aprint_normal_dev(self, "IOP IRQ relay unavailable (%d), tick polling\n", error);
 	pmf_device_register1(self, NULL, NULL, native_shutdown);

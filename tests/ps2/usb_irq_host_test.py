@@ -66,7 +66,9 @@ static void reset(void) {
     usb_recovered=usb_sbus_count=0;
 }
 int main(void) {
-    reset(); assert(ps2sif_usb_intr_establish(handler,&ram)==0);
+    reset(); assert(!ps2sif_usb_intr_active());
+    assert(ps2sif_usb_intr_establish(handler,&ram)==0);
+    assert(ps2sif_usb_intr_active());
     assert(allocs==1 && calls==0);
     ps2sif_usb_intr_poll(); /* startup pending before ready, no SBUS edge */
     assert(calls==1 && ram.acknowledged==1 && enable==0x80000000U);
@@ -80,6 +82,7 @@ int main(void) {
     assert(ram.acknowledged==4 && ram.sequence==5);
     ps2sif_usb_intr_poll(); assert(ram.acknowledged==5 && calls==5);
     ps2sif_usb_intr_stop(); assert(removed==1 && usb_stopped);
+    assert(!ps2sif_usb_intr_active());
     enable=0; ram.sequence++; flag=0x400;
     usb_relay_intr(NULL); ps2sif_usb_intr_poll();
     assert(calls==5 && enable==0 && allocs==1); /* no rearm/free */
@@ -93,6 +96,7 @@ int main(void) {
     reset(); assert(ps2sif_usb_intr_establish(handler,&ram)==0);
     ram.guard[5]=0; ps2sif_usb_intr_poll();
     assert(usb_stopped && calls==0 && disable==0x80000000U);
+    assert(!ps2sif_usb_intr_active());
     reset(); assert(ps2sif_usb_intr_establish(handler,&ram)==0);
     stop_in_handler=true; ps2sif_usb_intr_poll();
     assert(usb_stopped && calls==1 && enable==0 && removed==1);
