@@ -1233,3 +1233,181 @@ were removed from the normal source tree after capture. The normal PS2USB
 ELF remains the regression-tested polling build. Independent module loading,
 actual IOP-to-EE forwarding, poll reduction and real USB hotplug verification
 remain outstanding; none is claimed complete by this milestone.
+
+## 2026-10-18: independent IOP module startup and PCSX2 Keyboard
+
+The preexisting PCSX2 work was committed before proceeding: c0867d11a
+(AVX-512 PCH/build hygiene), 7d4c93c62 (RAW AgentConsole), f4c5ababe
+(distribution notices), 2e63feefa (development references), f7c69d2fe
+(Python cache ignore and integration status). No push was performed.
+
+### Resident ROM buffer loading
+
+The operation-6 failure above is now explained. The tested resident LOADFILE
+dispatcher starts with `sltiu v0,a0,6` and rejects operations >= 6. Its
+successful transport completion did not mean it accepted a buffer-loaded
+IRX. Run49's independent callback experiment subsequently loaded and ran a
+module, observed its execution marker, and restored the original callback.
+
+The source integration is opt-in as PS2IOPBOOT, derived from PS2USB:
+
+```sh
+KERNEL=PS2IOPBOOT sh build-ps2-shell.sh
+```
+
+See sys/arch/playstation2/iop/README.md and build-ps2-iop.sh. The source set
+includes a relocation-free bootstrap, nonresident module, import directory,
+linker metadata, and wire ABI. No SDK headers, libraries or prebuilt modules
+are included or linked; installed IOP compiler/binutils and the ps2-irxgen
+host tool generate the images. Public ABI declarations were consulted as
+interface facts; this is not a clean-room claim.
+
+The EE discovers unique loadcore/modload exports rather than hardcoding ROM
+function addresses. Under exclusive RPC ownership, it temporarily replaces
+the LOADFILE RAM callback with our bootstrap's uncached IOP alias. That code
+flushes I-cache, loads the IRX and starts it with a mailbox argument. No ROM
+instruction is patched. The original callback and heap binding are restored
+before releasing staging memory. An uncertain completion retains memory and
+disables further RPC use to avoid freeing potentially executing code.
+
+Run50 used the integrated path and reported:
+
+```text
+ps2sif0: independent IOP module: error=0 id=25 entry=1 start=25 mailbox=OK signature=0x42524745
+```
+
+The nonresident module also called intrman suspend/resume imports. Its four
+mailbox words, twelve guard words, entry result and reply signature passed.
+USB keyboard enumeration and the RAM-root shell followed normally.
+
+Run51 repeated module startup with the regression root and passed resident
+80 MiB without swap, JIT rewrite/cacheflush x64, fork/COW, normal/delay-slot
+EPC/BD, and GPR128/HI/LO/HI1/LO1/SA across syscall/timer/sleep/signal/fork.
+Both exit statuses were zero; filesystem shutdown and CPU halt completed.
+It consumed 92 input bytes, saved all 4477 EE SIO output bytes and reported
+no observation fault. The normal PS2USB configuration also still builds.
+
+Host tests cover production transaction bounds, export ambiguity, callback
+restoration and timeout allocation lifetime. A freestanding 32-bit host build
+of the actual bootstrap verifies its wire ABI and flush/load/start ordering,
+including load failure. Native SIF and USB DMA/HID tests also passed.
+
+Normal PS2IOPBOOT ELF SHA-256:
+dd2118ff8a2bd9345b7b8fce9f9970c961164f1df639353fe60625c6e461554b
+Regression PS2IOPBOOT ELF SHA-256:
+aec9fe5b11566efc52c81f92011e83455abb49638f5c4beaf47d8e309570e291
+
+This remains dependent on resident ROM service ABIs and exclusive EE RPC
+ownership, and has only been tested on the specified PCSX2 fork. IOP reset,
+IOP IRQ22-to-EE forwarding, reduced USB polling and actual root-hub hotplug
+remain outstanding. The smoke module installs no interrupt handlers.
+
+### Dedicated PCSX2 Keyboard device
+
+At the user's request, physical-key delivery moved from the Konami option
+to an independent PCSX2 Keyboard device (`Type=pcsx2kbd`). Both the settings
+device list and guest USB strings use PCSX2 Keyboard. Konami remains the
+original logical-binding device; its old PhysicalKeyInput option is removed.
+The new virtual device uses development VID/PID 0000:0001, not Konami's ID.
+Its JISLayout setting defaults to true and reports HID country 15; US mode
+reports 33. The existing NetBSD country-code detection needs no new quirk.
+
+The Windows device uses the already-tested native key and focus-release
+path automatically. Other platforms retain a logical binding fallback.
+Factory tests compile production creation code and check both identities,
+JIS/US descriptors and Windows/non-Windows input isolation. Existing physical
+scan/JIS/modifier/duplicate/focus-release report tests pass. Clang AVX2 builds.
+
+Run52 with the rebuilt EXE and normal PS2IOPBOOT ELF reached the shell with:
+
+```text
+uhidev0: PCSX2 (0x0000) PCSX2 Keyboard (0x0001), rev 1.10/1.00, addr 2, iclass 3/1
+ps2kbd0 at uhidev0: boot keyboard to direct console (JIS ASCII, repeat 500/33 ms)
+```
+
+It retains EE JIT, Full TLB, EE cache, 128 MiB, IOP interpreter and software
+GS. No Computer Use or synthetic keyboard input was used for this run; the
+earlier manual typing/focus confirmations apply to the shared input path.
+PCSX2 EXE SHA-256 for run52:
+5bd271d69762f4d3979e3de94ab95bef4fe74a8e6d07d97fe41dacc6bbaf159f
+
+## 2026-10-18: native resident IOP USB IRQ relay
+
+PS2IOPBOOT now loads the independently authored `iop/usb_irq.c` after the
+nonresident smoke test and OHCI initialization. The module registers IRQ22
+with intrman, masks OHCI MIE on an interrupt, publishes a sequence/count in
+uncached IOP RAM, sets SMFLAG 0x400, and signals EE INTC channel 1 through IOP
+0x1f801450 bit 1. Register semantics were checked in the existing NetBSD SBUS
+driver and this user's PCSX2 IopMem/IopHwWrite/HwWrite implementations. No
+PCSX2 code was changed for this relay.
+
+The EE handler is established before module start. Magic and twelve guard
+words gate activation, and an initial software notification tests the path.
+The EE consumes OHCI status, acknowledges the sampled sequence and restores
+MIE. It does not issue RPC from interrupt context. The ordinary tick poll
+remains; it also checks for unacknowledged sequences to recover a lost edge.
+Stop prevents rearm, masks MIE, removes the EE handler and retains the resident
+IOP code/mailbox until reset, including uncertain module-start failures.
+Detach disconnects children and stops interrupts/polling before freeing OHCI
+state. Relay restart after stop is deliberately unsupported in this boot.
+
+Runs54-56 returned successful resident module entry but failed mailbox magic
+validation: magic=0, sequence=1, guards intact. The generated code reused an
+R_MIPS_HI16 with a later standalone R_MIPS_LO16. Compiling with
+`-mno-explicit-relocs` produced fresh pairs and resolved the observed ROM
+relocation failure. Both generated IRXs now undergo paired-relocation and
+program-header checks in `build-ps2-iop.sh`. Run53's sandboxed launcher timed
+out before RAW capture; its process was absent at cleanup. Subsequent runs
+used the same specified EXE through AgentConsole outside that sandbox.
+
+Run57 reached the USB keyboard shell with the relay active. Run58 passed the
+80 MiB, JIT/cacheflush/fork-COW/EPC-BD and complete EE integer-context tests,
+then shut down with IOP=22, SBUS=23, recovered=0, seq=ack=23. The extra SBUS
+notification is the software startup probe, not a hardware IRQ22 entry.
+
+Run59 tested the final callback-stop and detach implementation. RAW output:
+
+```text
+ohci0: IOP IRQ22/SBUS relay active (tick fallback retained)
+ps2kbd0 at uhidev0: boot keyboard to direct console (JIS ASCII, repeat 500/33 ms)
+RAM128: resident=10240 pages (80 MiB), swap=0, maxrss=82520 KiB
+RAM128: ALL CHECKS PASSED
+mem-status=0
+JIT regression: code rewrite/cacheflush x64 OK
+JIT regression: fork/COW code isolation OK
+JIT regression: load exception EPC/BD=0 OK (cause=00000408)
+JIT regression: delay-slot exception EPC/BD=1 OK (cause=80000408)
+JIT regression: ALL CHECKS PASSED
+jit-status=0
+PS2 EE context: GPR128 HI/LO HI1/LO1 SA syscall timer sleep signal fork/wait OK
+ps2sif: USB IRQ stop: IOP=21 SBUS=22 recovered=0 seq=22 ack=22
+SBIOS unavailable; CPU halted.
+```
+
+The regression command was accepted at EE SIO output offset 3726. Actual
+result lines, not its echo, establish success. Input consumed=92 bytes,
+output saved=4621 bytes, observation fault empty. The emulator was stopped
+after guest halt. Both runs used the configured JIT/Full TLB/cache/128 MiB,
+IOP interpreter, software GS, and PCSX2 Keyboard. No Computer Use or generated
+USB key events were used.
+
+Host tests compile production EE/IOP code to check registration failure,
+resident entry, mask/notification, duplicate/lost edges, rearm races, callback
+stop, guards and timeout retention (`tests/ps2/usb_irq_host_test.py`). Bootstrap,
+native SIF/USB, R5900 cache/SPL and userland ISA checks also pass. Both
+PS2IOPBOOT and PS2USB build. A real controller detach, root-hub unplug/replug,
+manual key input on this version and real hardware remain untested. Keeping
+the tick poll means this does not yet measure latency/load improvement or
+prove full USB operation with only IRQ completions.
+
+New artifacts live under
+`C:\Users\mugi\.codex\visualizations\2026\10\17\01a14a8b-f378-7201-b894-5e3944844959`,
+with `run59-usb-irq-final/serial.ee-sio.bin` holding final evidence.
+SHA-256 of the final build:
+
+```text
+netbsd-PS2IOPBOOT.elf
+3e36827cbe8063bb292e4c1dba47cca318b3f6a25e8560b5de0917cbf157338a
+netbsd-PS2IOPBOOT-jit128.elf
+3046551a963ed3ea1247b3801a8a7488d66b55236dfdcd51f7d8d21f4c01c8d3
+```

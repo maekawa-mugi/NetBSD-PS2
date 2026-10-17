@@ -8,3 +8,6 @@ AFLAGS+= -mabi=n32 -march=r5900 -fno-pic -msoft-float -mno-llsc
 COPTS.mips_fpu.c+= -msingle-float
 AFLAGS.fp.S+= -msingle-float
 LINKFORMAT+= -m elf32ltsmipn32
+
+# Only PS2_IOP_BOOTSTRAP includes the independently generated IOP images.
+CPPFLAGS+= -I${S}/../build/ps2/native-iop

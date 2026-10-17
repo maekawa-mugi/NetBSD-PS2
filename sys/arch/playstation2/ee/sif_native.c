@@ -6,12 +6,14 @@
  * does not include/link SDK code, SDK headers, IRX binaries or SBIOS calls.
  *
  * At this stage the boot ROM's IOP kernel/services remain running. This
- * is not yet an IOP reset, module loader, interrupt-driven RPC stack or
- * peripheral driver. A sleepable mutex serializes runtime heap RPC. Child
+ * is not yet an IOP reset or interrupt-driven RPC stack. The optional
+ * PS2_IOP_BOOTSTRAP profile tests an independently authored module loader.
+ * A sleepable mutex serializes runtime heap/module RPC. Child
  * devices suballocate a reserved IOP DMA pool without issuing heap RPC.
  */
 #include <sys/cdefs.h>
 #include "opt_ps2_nosbios.h"
+#include "opt_ps2_iop_bootstrap.h"
 #ifndef PS2_NOSBIOS
 #error "native SIF requires exclusive ownership in an SBIOS-free profile"
 #endif
@@ -23,6 +25,13 @@
 #include <mips/cpuregs.h>
 #include <machine/autoconf.h>
 #include <playstation2/ee/sif_native.h>
+#ifdef PS2_IOP_BOOTSTRAP
+#include <playstation2/iop/bootstrap.h>
+#include <playstation2/iop/usb_irq.h>
+#include <playstation2/ee/intcvar.h>
+#include <sys/intr.h>
+#include "ps2_iop_images.h"
+#endif
 
 #define REG(a) (*(volatile uint32_t *)MIPS_PHYS_TO_KSEG1(a))
 #define D5 0x1000c000
@@ -233,11 +242,11 @@ rpc_header(uint32_t *packet, uint32_t command)
 }
 
 static int
-bind_heap(void)
+bind_service(uint32_t service)
 {
 	uint32_t p[16] = {0};
 	rpc_header(p, RPC_BIND);
-	p[8] = HEAP_SERVICE;
+	p[8] = service;
 	int error = send_command(p, sizeof(p), RPC_BIND);
 	if (!error)
 		error = wait_reply();
@@ -320,6 +329,354 @@ native_init(void)
 	return error;
 }
 
+#ifdef PS2_IOP_BOOTSTRAP
+static volatile uint32_t *
+iop_window(uint32_t address)
+{
+	return (volatile uint32_t *)MIPS_PHYS_TO_KSEG1(0x1c000000U + address);
+}
+
+static bool
+iop_function(uint32_t address)
+{
+	uint32_t physical_address = address & 0x1fffffffU;
+	if (address >= IO_LIMIT && (address & 0xe0000000U) != 0x80000000U &&
+	    (address & 0xe0000000U) != 0xa0000000U)
+		return false;
+	return physical_address >= 0x1000 && physical_address < IO_LIMIT &&
+	    !(address & 3);
+}
+
+static int
+find_bootstrap_apis(struct ps2_iop_boot_request *r)
+{
+	unsigned loaders = 0, cores = 0;
+	/* Export headers are mutable linked-list entries after ROM linking;
+	 * the original IRX export magic is no longer a reliable discriminator.
+	 * Reject ambiguous tables rather than assuming a fixed ROM address. */
+	for (uint32_t at = 0x1000; at < IO_LIMIT - 128; at += 4) {
+		volatile uint32_t *v = iop_window(at);
+		if (v[3] == 0x6c646f6dU && v[4] == 0x0064616fU &&
+		    iop_function(v[13]) && iop_function(v[15])) {
+			r->load_module = v[15];
+			r->start_module = v[13];
+			loaders++;
+		}
+		if (v[3] == 0x64616f6cU && v[4] == 0x65726f63U &&
+		    iop_function(v[9])) {
+			r->flush_icache = v[9];
+			cores++;
+		}
+	}
+	return loaders == 1 && cores == 1 ? 0 : ENOTSUP;
+}
+
+static int
+upload_iop(uint32_t address, const uint32_t *data, size_t bytes)
+{
+	for (size_t off = 0; off < bytes; off += 128) {
+		int error = send_to_iop(address + off, data + off / 4,
+		    MIN(128, bytes - off), false);
+		if (error)
+			return error;
+	}
+	return 0;
+}
+
+int
+ps2sif_exec_irx(const uint32_t *image, size_t bytes, const char *arguments,
+    size_t argument_size, struct ps2sif_module_result *result)
+{
+	struct ps2_iop_boot_request r = {0};
+	uint32_t p[16] = {0}, allocation = 0, ignored;
+	uint32_t saved_server, saved_buffer, old_entry = 0;
+	volatile uint32_t *server = NULL;
+	bool submitted = false, finished = false;
+	int error;
+	if (image == NULL || ((uintptr_t)image & 3) || result == NULL ||
+	    bytes < 52 || bytes > 65536 ||
+	    (bytes & 3) || image[0] != 0x464c457fU ||
+	    argument_size > sizeof(r.arguments) ||
+	    (argument_size && (arguments == NULL || arguments[argument_size - 1] != 0)))
+		return EINVAL;
+	memset(result, 0, sizeof(*result));
+	result->module_id = result->entry_result = result->start_result = -1;
+	mutex_enter(&rpc_lock);
+	if (!service_ready) {
+		mutex_exit(&rpc_lock);
+		return EIO;
+	}
+	saved_server = bound_server;
+	saved_buffer = bound_buffer;
+	error = find_bootstrap_apis(&r);
+	if (error)
+		goto out;
+	size_t imagebytes = roundup(bytes, 16);
+	size_t total = imagebytes + roundup(sizeof(ps2_iop_bootstrap_image), 16);
+	error = heap_call(1, total, &allocation);
+	if (error)
+		goto out;
+	if (!allocation || allocation >= IO_LIMIT || (allocation & 15) ||
+	    total > IO_LIMIT - allocation) {
+		error = EPROTO;
+		allocation = 0; /* Never free an unvalidated server-supplied address. */
+		goto out;
+	}
+	error = upload_iop(allocation, image, bytes);
+	if (!error)
+		error = upload_iop(allocation + imagebytes, ps2_iop_bootstrap_image,
+		    sizeof(ps2_iop_bootstrap_image));
+	if (!error)
+		error = bind_service(0x80000006U);
+	if (error)
+		goto out;
+	if (!bound_server || (bound_server & 3) || bound_server >= IO_LIMIT - 128 ||
+	    !bound_buffer || (bound_buffer & 3) || bound_buffer >= IO_LIMIT - sizeof(r)) {
+		error = EPROTO;
+		goto out;
+	}
+	server = iop_window(bound_server);
+	old_entry = server[1];
+	if (server[0] != 0x80000006U || !iop_function(old_entry)) {
+		error = EPROTO;
+		server = NULL;
+		goto out;
+	}
+	r.image = allocation;
+	r.argument_size = argument_size;
+	r.module_id = r.module_result = r.start_result = -1;
+	memcpy(r.name, "NetBSD", 7);
+	if (argument_size)
+		memcpy(r.arguments, arguments, argument_size);
+	error = upload_iop(bound_buffer, (const uint32_t *)&r, sizeof(r));
+	if (error)
+		goto out;
+	/* Execute uncached on the IOP: no assumption about stale I-cache tags
+	 * at newly allocated heap addresses. The generated code has no J/JAL,
+	 * gp references or relocations. Only this EE owns LOADFILE transactions. */
+	server[1] = (allocation + imagebytes) | 0xa0000000U;
+	barrier();
+	rpc_header(p, RPC_CALL);
+	p[0] = sizeof(r) << 8;
+	p[1] = bound_buffer;
+	p[8] = PS2_IOP_BOOT_COMMAND;
+	p[9] = sizeof(r);
+	p[10] = physical(reply);
+	p[11] = sizeof(*result);
+	p[12] = 1;
+	p[13] = bound_server;
+	for (unsigned i = 0; i < 4; i++)
+		reply[i] = 0xa5a5a5a5U;
+	submitted = true; /* A DMA timeout does not prove IOP did not receive it. */
+	error = send_command(p, sizeof(p), RPC_CALL);
+	if (!error)
+		error = wait_reply();
+	finished = error == 0;
+	server[1] = old_entry;
+	barrier();
+	if (!error) {
+		result->module_id = reply[0];
+		result->entry_result = reply[1];
+		result->start_result = reply[2];
+		result->signature = reply[3];
+		if (result->signature != PS2_IOP_BOOT_SIGNATURE)
+			error = EPROTO;
+		else if (result->module_id < 0 || result->start_result < 0)
+			error = ENOEXEC;
+	}
+out:
+	/* Restore the RPC callback and client binding before any heap calls. */
+	if (server != NULL && old_entry) {
+		server[1] = old_entry;
+		barrier();
+	}
+	bound_server = saved_server;
+	bound_buffer = saved_buffer;
+	if (allocation && (!submitted || finished)) {
+		int free_error = heap_call(2, allocation, &ignored);
+		if (free_error || ignored) {
+			service_ready = false;
+			if (!error)
+				error = free_error ? free_error : EIO;
+		}
+	}
+	if (submitted && !finished)
+		service_ready = false; /* Retain all potentially executing code/data. */
+	mutex_exit(&rpc_lock);
+	return error;
+}
+
+static void
+bootstrap_selftest(device_t self)
+{
+	uint32_t mailbox;
+	struct ps2sif_module_result result = {
+		.module_id = -1, .entry_result = -1, .start_result = -1
+	};
+	int error = ps2sif_alloc(64, &mailbox);
+	if (error) {
+		aprint_error_dev(self, "IOP bootstrap mailbox allocation: %d\n", error);
+		return;
+	}
+	volatile uint32_t *words = iop_window(mailbox);
+	for (unsigned i = 0; i < 16; i++)
+		words[i] = 0xa5a5a5a5U;
+	barrier();
+	char arg[9];
+	snprintf(arg, sizeof(arg), "%08x", mailbox);
+	error = ps2sif_exec_irx(ps2_iop_smoke_image, sizeof(ps2_iop_smoke_image),
+	    arg, sizeof(arg), &result);
+	bool valid = !error && words[0] == 0x4e425344U && words[1] == 0x494f5031U &&
+	    words[2] == mailbox && words[3] == 2 && result.entry_result == 1;
+	for (unsigned i = 4; i < 16; i++)
+		if (words[i] != 0xa5a5a5a5U)
+			valid = false;
+	aprint_normal_dev(self, "independent IOP module: error=%d id=%d entry=%d start=%d mailbox=%s signature=%#x\n",
+	    error, result.module_id, result.entry_result, result.start_result,
+	    valid ? "OK" : "FAILED", result.signature);
+	if (!error)
+		(void)ps2sif_free(mailbox);
+}
+#endif
+
+/* The native profile exclusively owns INTC channel 1 (no sbus attachment).
+ * Mailbox and resident module are deliberately never freed, even on failure.
+ * RPC timeout cannot establish whether an IOP handler was installed. */
+#ifdef PS2_IOP_BOOTSTRAP
+static volatile struct ps2_usb_irq_mailbox *usb_mailbox;
+static int (*usb_handler)(void *);
+static void *usb_context, *usb_ih;
+static bool usb_ready, usb_stopped;
+static unsigned usb_sbus_count, usb_recovered;
+
+static bool
+usb_mailbox_valid(void)
+{
+	if (usb_mailbox->magic != PS2_USB_IRQ_MAGIC)
+		return false;
+	for (unsigned i = 0; i < 12; i++)
+		if (usb_mailbox->guard[i] != PS2_USB_IRQ_GUARD)
+			return false;
+	return true;
+}
+
+static int
+usb_relay_intr(void *arg)
+{
+	(void)arg;
+	if (!(REG(SIF_SMFLAG) & 0x400))
+		return 0;
+	REG(SIF_SMFLAG) = 0x400;
+	barrier();
+	usb_sbus_count++;
+	if (usb_ready && !usb_stopped)
+		ps2sif_usb_intr_poll();
+	return 1;
+}
+#endif
+
+void
+ps2sif_usb_intr_poll(void)
+{
+#ifdef PS2_IOP_BOOTSTRAP
+	if (!usb_ready || usb_stopped)
+		return;
+	int s = splbio();
+	if (!usb_mailbox_valid()) {
+		usb_stopped = true;
+		REG(0x1f801614) = 0x80000000U;
+		aprint_error("ps2sif: USB IRQ mailbox corrupt; polling fallback\n");
+	} else {
+		uint32_t seq = usb_mailbox->sequence;
+		if (seq != usb_mailbox->acknowledged) {
+			/* IOP masks MIE before publishing seq and never rearms it.
+			 * Clear only our flag before rearm, preserving later events. */
+			if (REG(SIF_SMFLAG) & 0x400) {
+				REG(SIF_SMFLAG) = 0x400;
+				usb_recovered++;
+			}
+			(void)usb_handler(usb_context);
+			usb_mailbox->acknowledged = seq;
+			barrier();
+			if (!usb_stopped)
+				REG(0x1f801610) = 0x80000000U;
+			barrier();
+		}
+	}
+	splx(s);
+#endif
+}
+
+int
+ps2sif_usb_intr_establish(int (*handler)(void *), void *context)
+{
+#ifdef PS2_IOP_BOOTSTRAP
+	uint32_t address;
+	struct ps2sif_module_result result;
+	if (usb_mailbox != NULL || handler == NULL)
+		return EBUSY;
+	int error = ps2sif_alloc(sizeof(*usb_mailbox), &address);
+	if (error)
+		return error;
+	usb_mailbox = (volatile struct ps2_usb_irq_mailbox *)iop_window(address);
+	usb_mailbox->magic = usb_mailbox->sequence = 0;
+	usb_mailbox->interrupts = usb_mailbox->acknowledged = 0;
+	for (unsigned i = 0; i < 12; i++)
+		usb_mailbox->guard[i] = PS2_USB_IRQ_GUARD;
+	barrier();
+	usb_handler = handler;
+	usb_context = context;
+	REG(SIF_SMFLAG) = 0x400;
+	usb_ih = intc_intr_establish(I_CH1_SBUS, IPL_BIO, usb_relay_intr, NULL);
+	char arg[9];
+	snprintf(arg, sizeof(arg), "%08x", address);
+	error = ps2sif_exec_irx(ps2_iop_usb_irq_image,
+	    sizeof(ps2_iop_usb_irq_image), arg, sizeof(arg), &result);
+	if (!error && (result.entry_result != 0 || !usb_mailbox_valid()))
+		error = EPROTO;
+	if (error) {
+		printf("ps2sif: USB relay load: error=%d id=%d entry=%d start=%d magic=%#x\n",
+		    error, result.module_id, result.entry_result, result.start_result,
+		    usb_mailbox->magic);
+		printf("ps2sif: USB mailbox %#x seq=%#x IRQ=%#x ack=%#x guards=%#x/%#x\n",
+		    address, usb_mailbox->sequence, usb_mailbox->interrupts,
+		    usb_mailbox->acknowledged, usb_mailbox->guard[0], usb_mailbox->guard[11]);
+		ps2sif_usb_intr_stop();
+		return error;
+	}
+	usb_ready = true;
+	/* Startup notification may arrive while the synchronous RPC is active.
+	 * The tick poll also recovers a lost edge using the shared sequence. */
+	return 0;
+#else
+	(void)handler;
+	(void)context;
+	return ENOTSUP;
+#endif
+}
+
+void
+ps2sif_usb_intr_stop(void)
+{
+#ifdef PS2_IOP_BOOTSTRAP
+	if (usb_mailbox == NULL)
+		return;
+	int s = splbio();
+	usb_stopped = true;
+	REG(0x1f801614) = 0x80000000U;
+	barrier();
+	REG(SIF_SMFLAG) = 0x400;
+	if (usb_ih != NULL) {
+		intc_intr_disestablish(usb_ih);
+		usb_ih = NULL;
+	}
+	printf("ps2sif: USB IRQ stop: IOP=%u SBUS=%u recovered=%u seq=%u ack=%u\n",
+	    usb_mailbox->interrupts, usb_sbus_count, usb_recovered,
+	    usb_mailbox->sequence, usb_mailbox->acknowledged);
+	splx(s);
+#endif
+}
+
 static int
 ps2sif_match(device_t parent, cfdata_t cf, void *aux)
 {
@@ -339,7 +696,7 @@ ps2sif_attach(device_t parent, device_t self, void *aux)
 	if (error)
 		goto done;
 	stage = "heap bind";
-	error = bind_heap();
+	error = bind_service(HEAP_SERVICE);
 	if (error)
 		goto done;
 	stage = "heap allocate";
@@ -412,6 +769,9 @@ done:
 		}
 		aprint_normal_dev(self, "direct RAM window OK, runtime DMA pool %#x + %zu KiB\n",
 		    pool, poolsize / 1024);
+#ifdef PS2_IOP_BOOTSTRAP
+		bootstrap_selftest(self);
+#endif
 		config_found(self, &sa, NULL, CFARGS_NONE);
 	}
 }

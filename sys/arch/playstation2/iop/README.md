@@ -1,0 +1,89 @@
+# Independently authored IOP bootstrap
+
+These BSD-2-Clause sources use no PS2SDK headers, libraries, or prebuilt IRX
+modules. The installed IOP GCC/binutils compile them, and the `ps2-irxgen`
+host executable packages our ELF metadata. Public module ABI facts were
+consulted in the local SDK's loadcore/modload/intrman and SIF declarations;
+this is not a clean-room development claim.
+
+Build the experimental USB shell with:
+
+```sh
+KERNEL=PS2IOPBOOT sh build-ps2-shell.sh
+```
+
+`build-ps2-iop.sh` supports `PS2DEV`, `IOP_CC`, `IOP_LD`, `IOP_OBJCOPY`, and
+`IOP_IRXGEN` overrides. Generated images remain under `build/ps2/native-iop`.
+The normal PS2USB configuration does not require these additional tools.
+
+The tested ROM LOADFILE dispatcher accepts operations below 6, so it cannot
+provide the usual buffer-loading operation 6. The EE instead finds unique
+loadcore/modload export tables with valid function pointers, allocates IOP
+staging memory, and temporarily replaces the resident LOADFILE server's RAM
+callback. Its exclusively owned RPC calls our relocation-free bootstrap
+through an uncached IOP address. The bootstrap flushes the I-cache and calls
+the ROM LoadModuleBuffer and StartModule functions. ROM instructions are not
+patched. This depends on the resident ROM module ABI and assumes there is no
+other EE LOADFILE client or concurrent IOP reset.
+
+The original callback and EE heap-service binding are restored on exit.
+An uncertain RPC completion retains staging memory and disables subsequent
+heap RPC use rather than freeing potentially executing code. The callback
+must not escape the synchronous request. Loaded resident modules must own
+their allocations independently of the staging buffer.
+
+The nonresident smoke module parses a bounded mailbox argument, calls the
+intrman suspend/resume imports, and writes four signature words. The EE also
+checks twelve guard words, the module entry result, and the RPC signature.
+It installs no interrupt handlers. A separate resident `usb_irq.c` module
+provides the IRQ22-to-EE SBUS relay in PS2IOPBOOT. PS2USB retains polling.
+
+The resident module registers intrman IRQ22 in mode 1. On entry it disables
+OHCI MIE, increments a shared sequence and hardware-entry count in uncached
+IOP RAM, sets SMFLAG bit 0x400 (IOP 0x1d000030), then sets bit 1 of IOP
+0x1f801450 to signal EE INTC channel 1. These register paths were checked
+against this tree's SBUS driver and the specified PCSX2 fork's IopMem,
+IopHwWrite and HwWrite implementations. Other SMFLAG bits are preserved.
+The native profile owns INTC channel 1 exclusively; it must not also attach
+the SBIOS-backed sbus driver.
+
+EE installs its handler before loading the module. A startup notification
+and magic/guard validation precede OHCI rearm. EE services OHCI, acknowledges
+the sampled sequence, and restores MIE. The IOP never rearms the device or
+acknowledges OHCI status. A later device event remains pending in OHCI and
+asserts IRQ22 on rearm. Sequence comparison recovers a missed SBUS edge;
+duplicates do not rearm twice. Interrupt context performs no RPC or allocation.
+The existing per-tick poll remains enabled for bring-up. Successful IRQ
+delivery therefore does not yet establish reduced polling cost or latency.
+
+Shutdown stops polling/rearm, masks MIE and removes the EE interrupt handler.
+Detach disconnects children, stops the relay and callout, and then releases
+OHCI state. Resident IOP code and its 64-byte mailbox are retained until IOP
+reset, including uncertain module-start timeouts. Stop is terminal for this
+boot; controller reattachment cannot install another relay. A stopped module
+only masks/notifies if a stale IOP IRQ runs, so it cannot reenable MIE. Mailbox
+guard failures disable relay rearm and leave polling available.
+
+Compile with `-mno-explicit-relocs`: the tested ROM relocator did not correctly
+handle GCC's reused HI16 with a later standalone LO16. With explicit relocs,
+the resident entry returned success and updated sequence, but magic stayed
+zero. Fresh HI16/LO16 pairs fixed this in PCSX2. The build checks both IRXs
+for paired relocations so changing compiler options cannot silently restore
+that failure. This is a compatibility observation for the tested ROM.
+
+Host verification:
+
+```sh
+python3 tests/ps2/iop_bootstrap_host_test.py
+python3 tests/ps2/sif_native_host_test.py
+python3 tests/ps2/usb_irq_host_test.py
+```
+
+The former tests production EE transaction code with mocked RAM/transport,
+including bounds, ambiguous exports, callback restoration and timeout memory
+lifetime. It also compiles the actual bootstrap as a freestanding 32-bit host
+program to test its wire ABI and callback ordering. Runtime confirmation is
+limited to the specified PCSX2 fork and ROM; real hardware remains untested.
+The USB IRQ test compiles production EE and IOP code with mocked MMIO/imports
+to check lost edges, duplicate notifications, rearm races, stop during the
+callback, timeout retention, guards, and registration failures.

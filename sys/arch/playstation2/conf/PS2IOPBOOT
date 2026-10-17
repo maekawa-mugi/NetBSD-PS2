@@ -1,0 +1,3 @@
+# Native IOP bootstrap self-test and resident USB IRQ22-to-EE SBUS relay.
+include "arch/playstation2/conf/PS2USB"
+options PS2_IOP_BOOTSTRAP
