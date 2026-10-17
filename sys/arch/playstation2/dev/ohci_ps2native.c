@@ -19,16 +19,27 @@
 struct native_ohci {
 	struct ohci_softc ohci;
 	callout_t poll;
+	bool stopping;
 };
 
 static void
 native_poll(void *arg)
 {
 	struct native_ohci *sc = arg;
-	if (!sc->ohci.sc_dying) {
+	if (!sc->stopping && !sc->ohci.sc_dying) {
 		(void)ohci_intr(&sc->ohci);
 		callout_schedule(&sc->poll, 1);
 	}
+}
+
+static bool
+native_shutdown(device_t self, int flags)
+{
+	struct native_ohci *sc = device_private(self);
+	/* Prevent the non-MPSAFE poll callout from rearming after HC reset. */
+	sc->stopping = true;
+	callout_stop(&sc->poll);
+	return ohci_shutdown(self, flags);
 }
 
 static int
@@ -58,9 +69,9 @@ native_attach(device_t parent, device_t self, void *aux)
 		aprint_error_dev(self, "initialization failed: %d\n", error);
 		return;
 	}
-	pmf_device_register1(self, NULL, NULL, ohci_shutdown);
 	callout_init(&nsc->poll, 0);
 	callout_setfunc(&nsc->poll, native_poll, nsc);
+	pmf_device_register1(self, NULL, NULL, native_shutdown);
 	callout_schedule(&nsc->poll, 1);
 	sc->sc_child = config_found(self, &sc->sc_bus, usbctlprint, CFARGS_NONE);
 }
