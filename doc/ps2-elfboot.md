@@ -1108,3 +1108,128 @@ duplicate-report and unopened-detach guards; these guards were host-tested
 and rebuilt after the manually confirmed run, without a new emulator run.
 The earlier run36 memory/JIT/EE-state regression predates USB attachment;
 it must not be interpreted as a full USB-enabled runtime regression.
+
+## USB input hardening and physical keyboard mode (2026-10-17)
+
+The normal PS2USB profile now decodes US and JIS ASCII positions, with Shift,
+Caps Lock and Ctrl. It selects JIS for HID country code 15 or the Konami CPJ1
+0510:0002 device; other unspecified devices retain US. The key positions were
+checked against the existing BSD dev/hid/hidkbdmap.c definitions. This is an
+ASCII console map, not an IME or a complete wscons keyboard implementation.
+
+Repeat starts after 500 ms and runs at approximately 33 ms intervals, rounded
+to kernel ticks. It uses the current modifier report. Key release, rollover,
+deactivation and detach cancel repeat. A lock protects report/repeat state;
+detach closes the HID pipe, waits for callbacks/callouts and destroys the
+callout/lock before the device can be freed. A replacement starts with fresh
+Caps/held-key state. OHCI shutdown also stops its completion-poll callout so
+it cannot restart after the host controller is reset.
+
+The extended native_usb_host_test.py compiles production DMA mapping and
+keyboard logic with mocked kernel/callout interfaces. It checks JIS/US/Ctrl
+punctuation, repeat delay/interval, changing modifiers, multiple held keys,
+release, duplicate slots, rollover, deactivation, detach and replacement.
+This checks state transitions and cleanup ordering, not actual USB unplug
+or multiprocessor concurrency. Real root-hub disconnect/re-enumeration remains
+unverified; unplugging the host keyboard alone does not remove PCSX2's
+emulated Konami USB device.
+
+Initial run40 exposed a separate PCSX2 input issue: its Qt symbol-to-key
+normalization maps shifted punctuation using US positions. A real JIS host
+keyboard could therefore send Shift+Apostrophe for a double quote, which a
+correct guest JIS map renders as an asterisk. Changing the guest keymap alone
+cannot preserve the host's physical positions through that transformation.
+
+The specified PCSX2 fork now provides an opt-in device setting:
+Physical Keyboard Input (Windows), under HID Keyboard (Konami). In the test
+profile, USB1 has hidkbd_PhysicalKeyInput=true. It sends native Windows set-1
+positions through the existing QEMU HID queue, bypassing this device's
+logical Keyboard binding. Default behavior remains available with the option
+off; other frontend shortcuts keep their existing behavior. The guest still
+selects the keyboard layout. This does not pass an actual USB device through
+WinUSB/libusb. E0 native variants and JIS Ro/Yen/Kana/Henkan/Muhenkan usages
+are handled; E1/Pause is not supported by this new path.
+
+The user manually confirmed correct JIS punctuation in run41. The first
+focus-clear implementation then failed to stop guest repeat: clearing the
+HID queue made hid_has_events() false, so the endpoint NAKed instead of
+sending key release. The final implementation clears held keys/modifiers
+and leaves a queued no-op until an all-released report is delivered. It also
+observes application deactivation and focus-window changes. In run42 the
+user confirmed repeat stops when leaving the PCSX2 window and normal input
+works on return. Both manual runs have zero-byte serial.ee-sio.rx.bin files;
+no SIO CLI input or Computer Use was used for those confirmations.
+
+PCSX2's tests/test_usb_keyboard_physical.py compiles production native scan
+normalization, physical-state methods, QEMU key mapping and HID queue/report
+processing. It passes JIS/modifier/duplicate/focus-release tests, including
+a previously full queue. This host test does not synthesize Qt focus events;
+the focus behavior was checked manually. Details are in the PCSX2 tree's
+tools/usb-physical-keyboard.md. Its existing unrelated local changes were
+preserved. Native keyboard, OHCI shutdown, PCSX2 physical input and validation
+records are maintained as separate commits.
+
+Both run39 (before input hardening) and run43 (final keyboard/shutdown code
+with the updated PCSX2 executable) booted with the USB keyboard attached and
+passed the 80 MiB memory test, JIT code rewrite/cacheflush, fork/COW isolation,
+normal/delay-slot fault EPC/BD checks and the EE full-context test. Run43:
+
+```text
+RAM128: resident=10240 pages (80 MiB), swap=0, maxrss=82520 KiB
+RAM128: ALL CHECKS PASSED
+mem-status=0
+JIT regression: ALL CHECKS PASSED
+jit-status=0
+PS2 EE context: GPR128 HI/LO HI1/LO1 SA syscall timer sleep signal fork/wait OK
+SBIOS unavailable; CPU halted.
+```
+
+Run43 consumed the 92 test-input bytes, saved all 4356 EE SIO output bytes,
+reported no observation fault, completed filesystem shutdown and was stopped.
+It used EE JIT, Full TLB, EE cache, 128 MiB, IOP interpreter and software GS.
+Cache, SPL, native SIF and DMA/HID host checks, R5900 TLS/ISA checks for sh/init,
+and the final kernel/root build passed.
+
+Final normal PS2USB ELF SHA-256:
+5fe032ee1e80fc4b2784d8af6a43cf719c54e8994db0eb0fee2153de9fc576a5
+Final PS2USB regression ELF SHA-256:
+baf425844ff721414eaf5d5e9815dd96acc3cbbcf50479a5c46d09a8099ab5f6
+Updated PCSX2 EXE SHA-256:
+af36998a36ae212b2178e983765122d8a53f8a6ebb47404ec5425dab93a52ded
+
+### IOP interrupt forwarding: module-start capability still unresolved
+
+The existing BSD SBUS interface uses the USB flag 0x400 and EE INTC channel 1.
+The specified emulator sends OHCI IRQs to IOP IRQ22, not directly to the EE.
+A real IOP handler is needed to mask the OHCI source, publish a notification
+and signal the EE; the EE must service the controller and safely rearm it.
+Simply enabling an EE interrupt or removing the tick poll is insufficient.
+
+An independent BSD-2-Clause experiment was compiled using the installed IOP
+GCC/binutils and the ps2-irxgen host tool, with no SDK headers, libraries or
+prebuilt modules linked into the result. Public import ordinals, IRX metadata
+and LOADFILE wire fields were consulted as interface facts; this is not a
+claim of clean-room development. The no-argument probe only sets an execution
+marker and returns nonresident, without installing an IRQ handler.
+
+Run44 used a separate temporary PS2USBIRQPROBE kernel to bind resident-ROM
+LOADFILE service 0x80000006 and request operation 6 with the module in IOP RAM:
+
+```text
+ps2sif0: IRX probe: transport=0 module=-1515870811 result=-1515870811 executed=0 SMFLAG=0x30000
+```
+
+Both reply words retained their 0xa5a5a5a5 sentinel, and the module's execution
+marker was absent. This confirms neither successful module loading nor
+execution; transport completion alone is insufficient. It suggests that the
+current ROM service does not supply this memory-buffer operation, but packet
+or loader compatibility still requires investigation. The USB shell still
+booted afterward. No ROM patch or SDK loader patch was applied.
+
+The experiment sources, IRX, generated blob, temporary kernel config and
+kernel-probe.patch are saved under build/ps2/irq-experiment (ignored build
+artifacts, outside the committed source set). Temporary probe hooks/config
+were removed from the normal source tree after capture. The normal PS2USB
+ELF remains the regression-tested polling build. Independent module loading,
+actual IOP-to-EE forwarding, poll reduction and real USB hotplug verification
+remain outstanding; none is claimed complete by this milestone.
