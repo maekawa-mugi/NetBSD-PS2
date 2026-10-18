@@ -129,6 +129,32 @@ if [ -x "$xd/bin/Xorg" ]; then
     "$tools/mipsel--netbsd-strip" --strip-unneeded "$xt"/lib/*.so.* 2>/dev/null || true
     find "$xt/lib/modules" -name '*.so.*' -exec "$tools/mipsel--netbsd-strip" --strip-unneeded {} + 2>/dev/null || true
 fi
+# Third-party ports (build-ps2-ports.sh: jpeg png fltk dillo) under /usr/pkg, plus /etc/dillo.
+pk="$pic/dest/usr/pkg"
+if [ -x "$pk/bin/dillo" ]; then
+    pt="$tree/usr/pkg"
+    mkdir -p "$pt/bin" "$pt/lib" "$tree/etc"
+    for b in dillo dpid dpidc dilloc; do cp "$pk/bin/$b" "$pt/bin/$b"; done
+    cp -a "$pk"/lib/lib*.so* "$pt/lib/"
+    cp -a "$pk/lib/dillo" "$pt/lib/dillo"
+    mkdir -p "$pt/share"; cp -a "$pk/share/doc" "$pt/share/doc" 2>/dev/null || true
+    cp -a "$pic/dest/etc/dillo/dillo" "$tree/etc/dillo"
+    "$tools/mipsel--netbsd-strip" "$pt"/bin/* 2>/dev/null || true
+    "$tools/mipsel--netbsd-strip" --strip-unneeded "$pt"/lib/*.so.* 2>/dev/null || true
+    find "$pt/lib/dillo" -type f -exec "$tools/mipsel--netbsd-strip" {} + 2>/dev/null || true
+fi
+# dhcpcd (static) with the resolv.conf hook; DHCP for smap0 via rc.conf ifconfig_smap0=dhcp.
+dh="$src/external/bsd/dhcpcd"
+if sh ./build-ps2-user.sh make -C "$dh/sbin/dhcpcd" LDSTATIC=-static dependall >"$user/logs/u-dhcpcd.log" 2>&1; then
+    cp "$user/obj/external/bsd/dhcpcd/sbin/dhcpcd/dhcpcd" "$tree/sbin/dhcpcd"
+    mkdir -p "$tree/libexec/dhcpcd-hooks" "$tree/var/db/dhcpcd" "$tree/var/run/dhcpcd" "$tree/var/chroot/dhcpcd"
+    cp "$dh/dist/hooks/dhcpcd-run-hooks" "$tree/libexec/dhcpcd-run-hooks"
+    cp "$dh/dist/hooks/20-resolv.conf" "$dh/dist/hooks/30-hostname" "$tree/libexec/dhcpcd-hooks/"
+    chmod 555 "$tree/libexec/dhcpcd-run-hooks"
+    "$tools/mipsel--netbsd-strip" "$tree/sbin/dhcpcd" 2>/dev/null || true
+else
+    echo "skip (build failed): dhcpcd" >&2
+fi
 # test binary [ is the same program as test
 [ -f "$tree/bin/test" ] && ln -f "$tree/bin/test" "$tree/bin/["
 [ -f "$tree/usr/bin/stat" ] && ln -f "$tree/usr/bin/stat" "$tree/usr/bin/readlink"
@@ -162,6 +188,7 @@ spec="$out/root.mtree"
 ./dev/rwd0c type=char mode=0640 device=native,10,2
 ./dev/wd1b type=block mode=0640 device=native,1,17
 ./dev/rwd1b type=char mode=0640 device=native,10,17
+./dev/bpf type=char mode=0600 device=native,25,0
 ./dev/ptm type=char mode=0666 device=native,165,1
 ./dev/ptmx type=char mode=0666 device=native,165,0
 ./dev/ttyE0 type=char mode=0600 device=native,27,0

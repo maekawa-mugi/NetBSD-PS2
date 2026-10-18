@@ -53,6 +53,9 @@ SRCS+=	atomic_xor_32_cas.c atomic_xor_16_cas.c atomic_xor_8_cas.c	\
 	atomic_c11_compare_exchange_cas_32.c				\
 	atomic_c11_compare_exchange_cas_16.c				\
 	atomic_c11_compare_exchange_cas_8.c
+.if ${MACHINE} == "playstation2"
+SRCS+=	atomic_test_and_set.c
+.endif
 .if !${MACHINE_MIPS64}
 SRCS+=	atomic_is_lock_free.c
 .endif

@@ -9,6 +9,7 @@ root::0:0::0:0:Charlie &:/root:/bin/sh
 daemon:*:1:1::0:0:The devil himself:/:/sbin/nologin
 nobody:*:32767:39:Unprivileged user:0:0:Nobody:/nonexistent:/sbin/nologin
 ps2::1000:100::0:0:PS2 user:/home/ps2:/bin/sh
+_dhcpcd:*:211:211::0:0:dhcpcd:/var/chroot/dhcpcd:/sbin/nologin
 X
 cat >"$etc/group" <<'X'
 wheel:*:0:root
@@ -19,6 +20,7 @@ tty:*:4:
 operator:*:5:root
 bin:*:7:
 users:*:100:
+_dhcpcd:*:211:
 nogroup:*:39:
 X
 "$tools/nbpwd_mkdb" -d "$tree" -p "$etc/master.passwd" 2>&1 || {
@@ -58,12 +60,14 @@ cat >"$etc/shells" <<'X'
 /bin/csh
 X
 printf 'ps2\n' >"$etc/myname"
+# PCSX2's intercepted DHCP gives no DNS server; dhcpcd appends this to resolv.conf.
+printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' >"$etc/resolv.conf.tail"
 cat >"$etc/hosts" <<'X'
 127.0.0.1	localhost
 X
 printf '\nWelcome to NetBSD/playstation2 (no SBIOS)\n\n' >"$etc/motd"
 cat >"$etc/profile" <<'X'
-export PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/X11R7/bin
+export PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/X11R7/bin:/usr/pkg/bin
 export HOME=${HOME:-/root}
 export TERM=${TERM:-vt100}
 export ENV=/etc/shrc
@@ -110,7 +114,10 @@ postfix=NO
 update_motd=NO
 do_rcshutdown=YES
 auto_ifconfig=NO
-dhcpcd=NO
+net_interfaces="smap0"
+ifconfig_smap0=dhcp
+dhcpcd=YES
+dhcpcd_flags="-qMb"
 syslogd=YES
 syslogd_flags=""
 cron=YES
@@ -185,6 +192,7 @@ export FONTCONFIG_FILE=/etc/fonts/fonts.conf
 xsetroot -solid steelblue
 xclock -geometry 100x100-0+0 &
 xterm -geometry 80x24+10+10 -bg black -fg green &
+[ -x /usr/pkg/bin/dillo ] && dillo -g 560x380+40+60 &
 exec twm
 X
 mkdir -p "$etc/fonts" "$tree/var/cache/fontconfig"
