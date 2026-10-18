@@ -1,12 +1,13 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
- * GS as a wsdisplay(4) framebuffer. No SBIOS, RTE, IOP, DMA or VU use.
+ * GS as a wsdisplay(4) framebuffer. No SBIOS, RTE, IOP or VU use.
  *
  * Pixels live in a physically contiguous shadow buffer in main memory and
  * are drawn by rasops32/vcons. Changed rectangles are pushed to GS local
  * memory through GIF PATH3 PIO host->local transfers (EE User's Manual
- * ch.7, GS User's Manual ch.4/5/7), and scrolling uses a GS local->local
- * copy. The same buffer is what a client maps in WSDISPLAYIO_MODE_DUMBFB:
+ * ch.7, GS User's Manual ch.4/5/7), and fills (SPRITE) and scrolling
+ * (local->local copy) run in the GS without touching the shadow again.
+ * The same buffer is what a client maps in WSDISPLAYIO_MODE_DUMBFB:
  * the GS cannot be read or mapped by the EE, so while a client owns the
  * display the buffer is copied to the GS periodically (PS2FBIO_SRATE).
  * PCRTC timings follow gs_console.c.
@@ -31,10 +32,15 @@ __KERNEL_RCSID(0, "$NetBSD$");
 #include <dev/rasops/rasops.h>
 
 #include <mips/cpuregs.h>
+#include <mips/cache.h>
 #include <machine/autoconf.h>
 #include <machine/intr.h>
 #include <machine/ps2fbio.h>
 #include <playstation2/ee/gsreg.h>
+
+/* Device pixel of the background in an rasops attribute. */
+#define ATTR_BGPIX(ri, attr) \
+	((ri)->ri_devcmap[((uint32_t)(attr) >> 16) & 0xff])
 
 #define GIF_STAT (*(volatile uint32_t *)MIPS_PHYS_TO_KSEG1(0x10003020))
 #define GSWRITE(reg, value) (*(volatile uint64_t *)(reg) = (value))
@@ -270,9 +276,12 @@ tex8_tbw(const struct ps2fb_softc *sc)
 	return (sc->width + 127) / 128 * 2;
 }
 
-/* Drawing environment (context 2) used to expand PSMT8 through the CLUT. */
+/*
+ * Drawing environment (context 2): expands PSMT8 through the CLUT and runs
+ * SPRITE fills for the console. Needed in every mode.
+ */
 static void
-gs_setup8(struct ps2fb_softc *sc)
+gs_setup_draw(struct ps2fb_softc *sc)
 {
 	uint64_t fbw = sc->width / 64;
 	int s = _intr_suspend();
@@ -354,15 +363,85 @@ out:
 	_intr_resume(s);
 }
 
-static void
-gs_copy_up(struct ps2fb_softc *sc, u_int sy, u_int dy, u_int h)
+/*
+ * Local->local copy of a w x h rectangle. DIR (TRXPOS 60:59): 0 = top to
+ * bottom, 1 = bottom to top, both left to right.
+ */
+static bool
+gs_blit(struct ps2fb_softc *sc, u_int sx, u_int sy, u_int dx, u_int dy,
+    u_int w, u_int h, u_int dir)
 {
+	uint64_t fbw = sc->width / 64;
+
+	return gs_qw(sc, 4 | 0x8000 | (1ULL << 60), 0xe) &&
+	    gs_qw(sc, (fbw << 48) | (fbw << 16), 0x50) &&
+	    gs_qw(sc, ((uint64_t)dir << 59) | ((uint64_t)dy << 48) |
+	        ((uint64_t)dx << 32) | ((uint64_t)sy << 16) | sx, 0x51) &&
+	    gs_qw(sc, ((uint64_t)h << 32) | w, 0x52) &&
+	    gs_qw(sc, 2, 0x53);
+}
+
+/*
+ * Scroll whole rows between sy and dy. Overlapping source and destination
+ * are cut into bands no taller than the distance moved, so no band reads
+ * pixels an earlier band wrote, whatever order the GS scans a band in.
+ */
+static void
+gs_copy_rows(struct ps2fb_softc *sc, u_int sy, u_int dy, u_int h)
+{
+	u_int dist = sy > dy ? sy - dy : dy - sy, n;
 	int s;
 
-	if (!sc->gs_ok)
+	if (h == 0 || dist == 0)
 		return;
 	s = _intr_suspend();
-	(void)gs_trx(sc, 0, dy, sc->width, h, sy, true);
+	sc->gs_ok = true;
+	if (dy < sy) {
+		for (; h > 0 && sc->gs_ok; h -= n, sy += n, dy += n) {
+			n = MIN(h, dist);
+			(void)gs_blit(sc, 0, sy, 0, dy, sc->width, n, 0);
+		}
+	} else {
+		while (h > 0 && sc->gs_ok) {
+			n = MIN(h, dist);
+			h -= n;
+			(void)gs_blit(sc, 0, sy + h, 0, dy + h, sc->width, n, 1);
+		}
+	}
+	_intr_resume(s);
+}
+
+/* Copy a rectangle whose source and destination do not overlap. */
+static void
+gs_copy_rect(struct ps2fb_softc *sc, u_int sx, u_int sy, u_int dx, u_int dy,
+    u_int w, u_int h)
+{
+	int s = _intr_suspend();
+
+	sc->gs_ok = true;
+	(void)gs_blit(sc, sx, sy, dx, dy, w, h, 0);
+	_intr_resume(s);
+}
+
+/* Fill a rectangle with one colour (PSMCT32 ABGR) using a GS SPRITE. */
+static void
+gs_fill(struct ps2fb_softc *sc, u_int x, u_int y, u_int w, u_int h,
+    uint32_t pixel)
+{
+	uint64_t x0 = (2048ULL + x) << 4, y0 = (2048ULL + y) << 4;
+	uint64_t x1 = (2048ULL + x + w) << 4, y1 = (2048ULL + y + h) << 4;
+	int s;
+
+	if (w == 0 || h == 0)
+		return;
+	s = _intr_suspend();
+	sc->gs_ok = true;
+	/* PRIM sprite (CTXT=1, no texture/blend), RGBAQ, XYZ2 x2. */
+	(void)(gs_qw(sc, 4 | 0x8000 | (1ULL << 60), 0xe) &&
+	    gs_qw(sc, 6 | 0x200, 0x00) &&
+	    gs_qw(sc, (pixel & 0xffffff) | 0x80000000U, 0x01) &&
+	    gs_qw(sc, x0 | y0 << 16, 0x05) &&
+	    gs_qw(sc, x1 | y1 << 16, 0x05));
 	_intr_resume(s);
 }
 
@@ -415,11 +494,15 @@ ps2fb_cursor(void *c, int on, int row, int col)
 static void
 ps2fb_copycols(void *c, int row, int src, int dst, int ncols)
 {
-	u_int x, y, w, h;
+	u_int x, y, w, h, sx, sw;
 	struct ps2fb_softc *sc = cell_rect(c, row, dst, 1, ncols, &x, &y, &w, &h);
 
 	sc->orig.copycols(c, row, src, dst, ncols);
-	gs_upload(sc, x, y, w, h);
+	cell_rect(c, row, src, 1, ncols, &sx, &y, &sw, &h);
+	if (abs(src - dst) >= ncols)
+		gs_copy_rect(sc, sx, y, x, y, w, h);	/* disjoint */
+	else
+		gs_upload(sc, x, y, w, h);
 }
 
 static void
@@ -429,7 +512,7 @@ ps2fb_erasecols(void *c, int row, int col, int ncols, long attr)
 	struct ps2fb_softc *sc = cell_rect(c, row, col, 1, ncols, &x, &y, &w, &h);
 
 	sc->orig.erasecols(c, row, col, ncols, attr);
-	gs_upload(sc, x, y, w, h);
+	gs_fill(sc, x, y, w, h, ATTR_BGPIX((struct rasops_info *)c, attr));
 }
 
 static void
@@ -437,19 +520,18 @@ ps2fb_copyrows(void *c, int src, int dst, int nrows)
 {
 	struct rasops_info *ri = c;
 	struct ps2fb_softc *sc = ps2fb_sc;
-	u_int x, y, w, h;
+	u_int fh = ri->ri_font->fontheight;
 
 	sc->orig.copyrows(c, src, dst, nrows);
-	if (dst < src && ri->ri_xorigin == 0 &&
-	    ri->ri_width == sc->width) {
-		/* Upward scroll: a top-to-bottom GS copy handles the overlap. */
-		gs_copy_up(sc, ri->ri_yorigin + src * ri->ri_font->fontheight,
-		    ri->ri_yorigin + dst * ri->ri_font->fontheight,
-		    nrows * ri->ri_font->fontheight);
-		return;
+	if (ri->ri_xorigin == 0 && ri->ri_width == sc->width)
+		gs_copy_rows(sc, ri->ri_yorigin + src * fh,
+		    ri->ri_yorigin + dst * fh, nrows * fh);
+	else {
+		u_int x, y, w, h;
+
+		cell_rect(c, dst, 0, nrows, ri->ri_cols, &x, &y, &w, &h);
+		gs_upload(sc, 0, y, sc->width, h);
 	}
-	cell_rect(c, dst, 0, nrows, ri->ri_cols, &x, &y, &w, &h);
-	gs_upload(sc, 0, y, sc->width, h);
 }
 
 static void
@@ -461,7 +543,10 @@ ps2fb_eraserows(void *c, int row, int nrows, long attr)
 
 	sc->orig.eraserows(c, row, nrows, attr);
 	cell_rect(c, row, 0, nrows, ri->ri_cols, &x, &y, &w, &h);
-	gs_upload(sc, 0, y, sc->width, h);
+	if (nrows == ri->ri_rows && (ri->ri_flg & RI_FULLCLEAR) != 0)
+		gs_fill(sc, 0, 0, sc->width, sc->height, ATTR_BGPIX(ri, attr));
+	else
+		gs_fill(sc, 0, y, sc->width, h, ATTR_BGPIX(ri, attr));
 }
 
 /* ---- wsdisplay glue ------------------------------------------------ */
@@ -493,8 +578,8 @@ ps2fb_set_mode(struct ps2fb_softc *sc, u_int w, u_int h, u_int depth)
 	sc->height = h;
 	sc->depth = depth;
 	gs_program_display(sc);
+	gs_setup_draw(sc);
 	if (depth == 8) {
-		gs_setup8(sc);
 		gs_load_clut(sc);
 	}
 }
@@ -788,6 +873,7 @@ ps2fb_attach(device_t parent, device_t self, void *aux)
 	sc->shadow = (uint32_t *)MIPS_PHYS_TO_KSEG0(sc->shadow_pa);
 	memset(sc->shadow, 0, sc->shadow_size);
 	ps2fb_sc = sc;
+	gs_setup_draw(sc);
 
 	aprint_normal(": GS %ux%u 32bpp PSMCT32, %zu KiB shadow framebuffer\n",
 	    sc->width, sc->height, sc->shadow_size >> 10);

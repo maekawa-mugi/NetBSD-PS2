@@ -50,8 +50,9 @@
 #define HEIGHT 480
 #define COLS (WIDTH / 8)
 #define ROWS (HEIGHT / 16)
-#define BG 0x80201810U
-#define FG 0x80e8e8e8U
+/* Same black/green as WS_KERNEL_BG/FG (WSCOL_BLACK/WSCOL_GREEN in rasops). */
+#define BG 0x80000000U
+#define FG 0x80007f00U
 #define GIF_STAT (*(volatile uint32_t *)MIPS_PHYS_TO_KSEG1(0x10003020))
 #define GIF_CTRL (*(volatile uint32_t *)MIPS_PHYS_TO_KSEG1(0x10003000))
 #define GSWRITE(reg, value) (*(volatile uint64_t *)(reg) = (value))
