@@ -697,7 +697,7 @@ ps2fb_attach(device_t parent, device_t self, void *aux)
 	sc->depth = 32;
 	sc->dw = TEXT_WIDTH;
 	sc->dh = TEXT_HEIGHT;
-	sc->dd = 32;
+	sc->dd = 8;		/* X (wsfb) gets a palette framebuffer by default */
 	for (u_int i = 0; i < 256; i++) {	/* default palette: RGB332 */
 		sc->cmap[0][i] = (i >> 5) * 255 / 7;
 		sc->cmap[1][i] = ((i >> 2) & 7) * 255 / 7;

@@ -11,7 +11,7 @@ user="$src/build/ps2/user-n32"
 tools="$src/build/ps2/tools/bin"
 out="$src/build/ps2/userland"
 tree="$out/tree"
-size=${ROOT_SIZE:-192m}
+size=${ROOT_SIZE:-384m}
 mkdir -p "$user/logs" "$out"
 
 # srcdir[:progname]  -> installed under dir given by the group header.
@@ -105,6 +105,28 @@ mkdir -p "$out/fbinc" && cp sys/arch/playstation2/include/ps2fbio.h "$out/fbinc/
     -Wl,--start-group "$user/dest/usr/lib/libc.a" "$user/dest/usr/lib/libgcc.a" -Wl,--end-group \
     "$user/dest/usr/lib/crtend.o" "$user/dest/usr/lib/crtn.o" && \
     "$tools/mipsel--netbsd-strip" "$tree/usr/bin/fbtest"
+# X11 (cross-built by build-ps2-x.sh, PIC): binaries, libraries, modules, fonts, xkb data.
+xd="$pic/dest/usr/X11R7"
+if [ -x "$xd/bin/Xorg" ]; then
+    xt="$tree/usr/X11R7"
+    mkdir -p "$xt/bin" "$xt/lib/X11/fonts" "$tree/tmp/.X11-unix"
+    for f in "$xd"/bin/*; do
+        [ -f "$f" ] && [ ! -L "$f" ] && ! head -c2 "$f" | grep -q '#!' && cp "$f" "$xt/bin/" || true
+    done
+    cp -a "$xd/bin/X" "$xt/bin/X" 2>/dev/null || true
+    for sc in startx uxterm; do [ -f "$xd/bin/$sc" ] && cp "$xd/bin/$sc" "$xt/bin/$sc"; done
+    cp -a "$xd"/lib/lib*.so* "$xt/lib/" 2>/dev/null || true
+    cp -a "$xd/lib/modules" "$xt/lib/modules"
+    find "$xt/lib/modules" -name '*.a' -delete
+    for d in fonts/misc fonts/encodings xkb; do
+        mkdir -p "$xt/lib/X11/$(dirname $d)"; cp -a "$xd/lib/X11/$d" "$xt/lib/X11/$d"
+    done
+    cp "$xd/lib/X11/rgb.txt" "$xd/lib/X11/XErrorDB" "$xd/lib/X11/XKeysymDB" "$xt/lib/X11/" 2>/dev/null || true
+    [ -d "$xd/lib/X11/app-defaults" ] && cp -a "$xd/lib/X11/app-defaults" "$xt/lib/X11/"
+    "$tools/mipsel--netbsd-strip" "$xt"/bin/* 2>/dev/null || true
+    "$tools/mipsel--netbsd-strip" --strip-unneeded "$xt"/lib/*.so.* 2>/dev/null || true
+    find "$xt/lib/modules" -name '*.so.*' -exec "$tools/mipsel--netbsd-strip" --strip-unneeded {} + 2>/dev/null || true
+fi
 # test binary [ is the same program as test
 [ -f "$tree/bin/test" ] && ln -f "$tree/bin/test" "$tree/bin/["
 [ -f "$tree/usr/bin/stat" ] && ln -f "$tree/usr/bin/stat" "$tree/usr/bin/readlink"

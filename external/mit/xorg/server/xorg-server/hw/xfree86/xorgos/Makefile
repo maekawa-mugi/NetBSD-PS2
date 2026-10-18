@@ -60,7 +60,7 @@ CPPFLAGS.${_FN}=	-DWSCONS_SUPPORT -DPCVT_SUPPORT -DUSESTDRES -DHAVE_SYSV_IPC
     ${MACHINE} == "hpcmips" || \
     ${MACHINE} == "newsmips" || \
     ${MACHINE} == "sgimips" || \
-    ${MACHINE} == "evbmips"
+    ${MACHINE} == "evbmips" || ${MACHINE} == "playstation2"
 SRCS.bsd+=	ppc_video.c agp_noop.c
 .for _FN in ${SRCS.bsd}
 CPPFLAGS.${_FN}=	-DWSCONS_SUPPORT -DPCVT_SUPPORT  -DUSESTDRES -DHAVE_SYSV_IPC

@@ -96,7 +96,7 @@ SRCS+=		pixman-arm-neon.c			\
 AFLAGS+=	${${ACTIVE_CC} == "clang" :? -fno-integrated-as :}
 .endif
 
-.if !empty(MACHINE_ARCH:Mmips*64el) && empty(COPTS:M-march=*)
+.if !empty(MACHINE_ARCH:Mmips*64el) && empty(COPTS:M-march=*) && ${MACHINE} != "playstation2"
 # Loongson MMI
 SRCS+=		pixman-mmx.c
 #CPPFLAGS+=	-DUSE_LOONGSON_MMI

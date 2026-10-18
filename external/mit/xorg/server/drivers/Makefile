@@ -192,6 +192,11 @@ SUBDIR+= \
 	xf86-video-wsfb
 .endif	# ${MACHINE} == "evbmips"
 
+.if ${MACHINE} == "playstation2"
+SUBDIR+= \
+	xf86-video-wsfb
+.endif	# ${MACHINE} == "playstation2"
+
 .if ${MACHINE} == "evbppc"
 SUBDIR+= \
 	xf86-video-wsfb

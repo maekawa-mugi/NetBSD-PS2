@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /* ps2fb test: query, map and draw on the GS wsdisplay, switch modes, restore.
- *   fbtest [-d wsdisplay-device] [-t seconds] [-m widthxheight] [-b bpp(8|32)]
+ *   fbtest [-d wsdisplay-device] [-t seconds] [-m widthxheight] [-b bpp(8|32)] [-s (set mode only)]
  */
 #include <sys/types.h>
 #include <sys/ioctl.h>
@@ -74,7 +74,7 @@ main(int argc, char **argv)
 {
 	const char *dev = "/dev/ttyE1";
 	u_int secs = 5, w = 0, h = 0, rate, bpp = 32;
-	int ch, fd, mode;
+	int ch, fd, mode, setonly = 0;
 	struct wsdisplay_fbinfo fi;
 	struct wsdisplayio_fbinfo fbi;
 	struct ps2fb_mode pm;
@@ -82,12 +82,13 @@ main(int argc, char **argv)
 	size_t size;
 	uint32_t *fb;
 
-	while ((ch = getopt(argc, argv, "d:t:m:b:")) != -1) {
+	while ((ch = getopt(argc, argv, "d:t:m:b:s")) != -1) {
 		switch (ch) {
 		case 'd': dev = optarg; break;
 		case 't': secs = atoi(optarg); break;
 		case 'm': if (sscanf(optarg, "%ux%u", &w, &h) != 2)
 				errx(1, "bad mode"); break;
+		case 's': setonly = 1; break;
 		case 'b': bpp = atoi(optarg); break;
 		default: errx(1, "usage");
 		}
@@ -114,6 +115,10 @@ main(int argc, char **argv)
 	pm.width = w; pm.height = h; pm.depth = bpp;
 	if (ioctl(fd, PS2FBIO_SMODE, &pm) < 0)
 		err(1, "PS2FBIO_SMODE %ux%u", w, h);
+	if (setonly) {
+		printf("next DUMBFB mode %ux%ux%u\n", w, h, bpp);
+		return 0;
+	}
 	mode = WSDISPLAYIO_MODE_DUMBFB;
 	if (ioctl(fd, WSDISPLAYIO_SMODE, &mode) < 0)
 		err(1, "SMODE dumbfb");

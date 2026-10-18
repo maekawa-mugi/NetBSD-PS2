@@ -22,9 +22,11 @@ CPPFLAGS+= \
 	-I${X11SRCDIR.xorg-server}/../include ${X11FLAGS.DIX}
 
 SUBDIR = \
-	glx \
 	shadow \
 	wfb
+.if ${MACHINE} != "playstation2"
+SUBDIR+=	glx
+.endif
 
 COPTS.miinitext.c=	-Wno-error	# XXX xf86bigfstr.h
 

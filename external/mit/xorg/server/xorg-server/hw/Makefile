@@ -2,7 +2,9 @@
 
 .include "../Makefile.common"
 
+.if ${MACHINE} != "playstation2"
 SUBDIR= xnest vfb
+.endif
 .if ${XSERVER_XFREE86} != "no"
 SUBDIR+= xfree86
 .endif

@@ -62,7 +62,7 @@ cat >"$etc/hosts" <<'X'
 X
 printf '\nWelcome to NetBSD/playstation2 (no SBIOS)\n\n' >"$etc/motd"
 cat >"$etc/profile" <<'X'
-export PATH=/sbin:/bin:/usr/sbin:/usr/bin
+export PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/X11R7/bin
 export HOME=${HOME:-/root}
 export TERM=${TERM:-vt100}
 export ENV=/etc/shrc
@@ -140,3 +140,48 @@ chmod 755 "$tree/var/cron"; chmod 700 "$tree/var/cron/tabs"
 printf '#!/bin/sh\nexit 0\n' >"$tree/usr/bin/true"
 printf '#!/bin/sh\nexit 1\n' >"$tree/usr/bin/false"
 chmod 755 "$tree/usr/bin/true" "$tree/usr/bin/false"
+
+# X11 (Xorg + wsfb/ws): configuration for the GS wsdisplay and USB wskbd/wsmouse.
+mkdir -p "$etc/X11" "$tree/root" "$tree/var/db/xkb"
+cat >"$etc/X11/xorg.conf" <<'X'
+Section "ServerFlags"
+	Option "AutoAddDevices" "off"
+	Option "AutoEnableDevices" "off"
+	Option "DontZap" "on"
+EndSection
+Section "Files"
+	ModulePath "/usr/X11R7/lib/modules"
+	FontPath "/usr/X11R7/lib/X11/fonts/misc/"
+EndSection
+Section "InputDevice"
+	Identifier "Keyboard0"
+	Driver "kbd"
+EndSection
+Section "InputDevice"
+	Identifier "Mouse0"
+	Driver "ws"
+	Option "Device" "/dev/wsmouse"
+EndSection
+Section "Device"
+	Identifier "GS0"
+	Driver "wsfb"
+	Option "device" "/dev/ttyE0"
+	Option "ShadowFB" "off"
+EndSection
+Section "Screen"
+	Identifier "Screen0"
+	Device "GS0"
+EndSection
+Section "ServerLayout"
+	Identifier "Layout0"
+	Screen "Screen0"
+	InputDevice "Keyboard0" "CoreKeyboard"
+	InputDevice "Mouse0" "CorePointer"
+EndSection
+X
+cat >"$tree/root/.xinitrc" <<'X'
+xsetroot -solid steelblue
+xclock -geometry 100x100-0+0 &
+xterm -geometry 80x24+10+10 -bg black -fg green &
+exec twm
+X
