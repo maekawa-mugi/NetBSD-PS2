@@ -65,34 +65,72 @@ cat >"$etc/shrc" <<'X'
 if [ "$(id -u)" = 0 ]; then PS1='ps2# '; else PS1='ps2$ '; fi
 alias ll='ls -l'
 X
+# The real /etc/rc, rc.subr, defaults/rc.conf and rc.d/* from the source tree.
+srcetc=etc
+mkdir -p "$etc/defaults" "$etc/rc.d"
+cp "$srcetc/rc" "$srcetc/rc.subr" "$srcetc/rc.shutdown" "$srcetc/rc.conf" "$etc/"
+cp "$srcetc/defaults/rc.conf" "$etc/defaults/rc.conf"
+cp "$srcetc"/rc.d/* "$etc/rc.d/" 2>/dev/null || true
+rm -f "$etc/rc.d/Makefile" "$etc/rc.d"/*.in
+chmod 755 "$etc/rc" "$etc/rc.shutdown"
+chmod 555 "$etc/rc.d"/*
+chmod 644 "$etc/rc.subr" "$etc/rc.conf" "$etc/defaults/rc.conf"
+# PS2 overrides.  /etc/rc.conf is read after defaults/rc.conf.
 cat >"$etc/rc.conf" <<'X'
+# NetBSD/playstation2 rc.conf (overrides /etc/defaults/rc.conf)
+if [ -r /etc/defaults/rc.conf ]; then
+	. /etc/defaults/rc.conf
+fi
+rc_configured=YES
 hostname=ps2
-swapctl=YES
-syslogd=NO
+swapoff=YES
+savecore=NO
+ccd=NO
+raidframe=NO
+cgd=NO
+quota=NO
+sysdb=NO
+modules=NO
+ppp=NO
+makemandb=NO
+fccache=NO
+iscsid_volumes=NO
+virecover=NO
+bthcid=NO
+sdpd=NO
+random_seed=NO
+postfix=NO
+update_motd=NO
+do_rcshutdown=YES
+auto_ifconfig=NO
+dhcpcd=NO
+syslogd=YES
+syslogd_flags=""
+cron=YES
+inetd=YES
+inetd_flags=""
 X
-cat >"$etc/rc" <<'X'
-#!/bin/sh
-# Minimal /etc/rc: remount root, swap, hostname, sysctl, local services.
-PATH=/sbin:/bin:/usr/sbin:/usr/bin
-export PATH
-exec </dev/console >/dev/console 2>&1
-. /etc/rc.conf
-echo "Starting PS2 rc..."
-mount -u -o rw / 2>/dev/null || mount -u -o rw /dev/wd0a / 2>/dev/null
-mount -a -t ffs 2>/dev/null
-[ "$swapctl" = YES ] && swapctl -A 2>/dev/null
-hostname "$hostname"
-[ -f /etc/sysctl.conf ] && while read k; do sysctl -w "$k" >/dev/null; done </etc/sysctl.conf
-dmesg >/var/run/dmesg.boot 2>/dev/null
-: >/var/run/utmpx 2>/dev/null
-for s in /etc/rc.d/*; do
-	[ -x "$s" ] && "$s" start
+for f in syslog.conf inetd.conf services protocols nsswitch.conf mailer.conf; do
+	cp "$srcetc/$f" "$etc/$f"
 done
-echo "rc done"
-exit 0
+# Enable the IPv4 internal services (no IPv6 in this userland).
+sed -E 's/^#((echo|discard|daytime|time)[[:space:]].*(tcp|udp)[[:space:]].*internal)/\1/' \
+	"$srcetc/inetd.conf" >"$etc/inetd.conf"
+cat >"$etc/crontab" <<'X'
+SHELL=/bin/sh
+PATH=/bin:/sbin:/usr/bin:/usr/sbin
+HOME=/var/log
+#min	hour	mday	month	wday	user	command
+*	*	*	*	*	root	/bin/date >>/var/log/cron-ps2.log
 X
-chmod 755 "$etc/rc"
-mkdir -p "$etc/rc.d"
+chmod 644 "$etc/crontab"
+for f in messages authlog cron xferlog lpd-errs maillog; do
+	: >"$tree/var/log/$f"
+done
+chmod 644 "$tree/var/log/messages" "$tree/var/log/cron"
+chmod 600 "$tree/var/log/authlog"
+mkdir -p "$tree/var/cron/tabs" "$tree/var/db" "$tree/usr/libexec"
+chmod 755 "$tree/var/cron"; chmod 700 "$tree/var/cron/tabs"
 printf '#!/bin/sh\nexit 0\n' >"$tree/usr/bin/true"
 printf '#!/bin/sh\nexit 1\n' >"$tree/usr/bin/false"
 chmod 755 "$tree/usr/bin/true" "$tree/usr/bin/false"
