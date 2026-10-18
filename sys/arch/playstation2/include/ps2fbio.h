@@ -14,11 +14,11 @@
 struct ps2fb_mode {
 	u_int	width;
 	u_int	height;
-	u_int	depth;		/* 32: PSMCT32, pixel = 0x00BBGGRR */
+	u_int	depth;		/* 32: PSMCT32 (0xAABBGGRR); 8: palette index (PSMT8 + CLUT) */
 };
 
 #define PS2FBIO_GMODE	_IOWR('W', 192, struct ps2fb_mode) /* index in width */
-#define PS2FBIO_SMODE	_IOW('W', 193, struct ps2fb_mode)
+#define PS2FBIO_SMODE	_IOW('W', 193, struct ps2fb_mode) /* applies to DUMBFB sessions */
 /* Upload rate (Hz) of the mapped framebuffer; 0 disables the periodic copy. */
 #define PS2FBIO_SRATE	_IOW('W', 194, u_int)
 /* Make the GS show the mapped framebuffer contents now. */

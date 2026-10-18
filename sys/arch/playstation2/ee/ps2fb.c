@@ -43,6 +43,12 @@ __KERNEL_RCSID(0, "$NetBSD$");
 #define TEXT_HEIGHT	480
 #define DEFAULT_RATE	20	/* Hz, DUMBFB periodic upload */
 
+/* GS local memory map (64-word units): PSMCT32 frame, PSMT8 texture, CLUT. */
+#define TEX8_TBP	5120		/* after 640x480x4 = 4800 units; page aligned */
+#define TEX8_CBP	6400
+#define PSM_CT32	0
+#define PSM_T8		0x13
+
 struct ps2fb_softc {
 	device_t sc_dev;
 	struct vcons_data vd;
@@ -58,6 +64,9 @@ struct ps2fb_softc {
 	size_t shadow_size;
 
 	u_int width, height;		/* mode the GS shows now */
+	u_int depth;			/* 32 (PSMCT32) or 8 (PSMT8 via CLUT) */
+	u_int dw, dh, dd;		/* mode used by the next DUMBFB session */
+	uint8_t cmap[3][256];		/* 8bpp palette (R, G, B) */
 	int mode;			/* WSDISPLAYIO_MODE_* */
 	bool video_on;
 	bool gs_ok;
@@ -172,6 +181,108 @@ gs_upload_band(struct ps2fb_softc *sc, u_int x, u_int y, u_int w, u_int h)
 			gs_qw(sc, ((uint64_t)pix[1] << 32) | pix[0],
 			    ((uint64_t)pix[3] << 32) | pix[2]);
 		}
+	}
+out:
+	_intr_resume(s);
+}
+
+
+/* BITBLTBUF/TRXPOS/TRXREG/TRXDIR for a host->local copy to any buffer. */
+static bool
+gs_trx_to(struct ps2fb_softc *sc, u_int dbp, u_int dbw, u_int psm, u_int w,
+    u_int h)
+{
+	return gs_qw(sc, 4 | 0x8000 | (1ULL << 60), 0xe) &&
+	    gs_qw(sc, ((uint64_t)psm << 56) | ((uint64_t)dbw << 48) |
+	        ((uint64_t)dbp << 32), 0x50) &&
+	    gs_qw(sc, 0, 0x51) &&
+	    gs_qw(sc, ((uint64_t)h << 32) | w, 0x52) &&
+	    gs_qw(sc, 0, 0x53);
+}
+
+static u_int
+tex8_tbw(const struct ps2fb_softc *sc)
+{
+	/* PSMT8 pages are 128 texels wide: use an even number of 64s. */
+	return (sc->width + 127) / 128 * 2;
+}
+
+/* Drawing environment (context 2) used to expand PSMT8 through the CLUT. */
+static void
+gs_setup8(struct ps2fb_softc *sc)
+{
+	uint64_t fbw = sc->width / 64;
+	int s = _intr_suspend();
+
+	sc->gs_ok = true;
+	(void)(gs_qw(sc, 9 | 0x8000 | (1ULL << 60), 0xe) &&
+	    gs_qw(sc, (uint64_t)PSM_CT32 << 24 | fbw << 16, 0x4d) /* FRAME_2 */ &&
+	    gs_qw(sc, 1ULL << 32, 0x4f) /* ZBUF_2: no Z write */ &&
+	    gs_qw(sc, 0x30000, 0x48) /* TEST_2: ZTE, ZTST=ALWAYS */ &&
+	    gs_qw(sc, ((uint64_t)(sc->height - 1) << 48) |
+	        ((uint64_t)(sc->width - 1) << 16), 0x41) /* SCISSOR_2 */ &&
+	    gs_qw(sc, (2048ULL << 4) | (2048ULL << 36), 0x19) /* XYOFFSET_2 */ &&
+	    gs_qw(sc, 1, 0x1a) /* PRMODECONT: PRIM */ &&
+	    gs_qw(sc, 0, 0x15) /* TEX1_2: nearest */ &&
+	    gs_qw(sc, 0, 0x45) /* DTHE */ &&
+	    gs_qw(sc, 1, 0x46)); /* COLCLAMP */
+	_intr_resume(s);
+}
+
+/* Load the palette: CSM1 stores index bits 3 and 4 swapped. */
+static void
+gs_load_clut(struct ps2fb_softc *sc)
+{
+	uint32_t raster[256];
+	u_int i, p;
+	int s;
+
+	for (i = 0; i < 256; i++) {
+		p = i ^ ((((i >> 3) ^ (i >> 4)) & 1) * 0x18);
+		raster[p] = sc->cmap[0][i] | (sc->cmap[1][i] << 8) |
+		    (sc->cmap[2][i] << 16) | (0x80U << 24);
+	}
+	s = _intr_suspend();
+	sc->gs_ok = true;
+	if (gs_trx_to(sc, TEX8_CBP, 1, PSM_CT32, 16, 16) &&
+	    gs_qw(sc, 64 | 0x8000 | (2ULL << 58), 0)) {
+		for (i = 0; i < 256; i += 4)
+			if (!gs_qw(sc, ((uint64_t)raster[i + 1] << 32) | raster[i],
+			    ((uint64_t)raster[i + 3] << 32) | raster[i + 2]))
+				break;
+	}
+	_intr_resume(s);
+}
+
+/* Upload the whole PSMT8 shadow and draw it through the CLUT to the frame. */
+static void
+gs_present8(struct ps2fb_softc *sc)
+{
+	const uint64_t *p = (const uint64_t *)(void *)sc->shadow;
+	u_int nqw = sc->width * sc->height / 16, i;
+	uint64_t tex0, w16 = (uint64_t)sc->width << 4, h16 = (uint64_t)sc->height << 4;
+	int s;
+
+	tex0 = TEX8_TBP | ((uint64_t)tex8_tbw(sc) << 14) |
+	    ((uint64_t)PSM_T8 << 20) | (10ULL << 26) | (9ULL << 30) |
+	    (1ULL << 34) /* TCC */ | (1ULL << 35) /* TFX=DECAL */ |
+	    ((uint64_t)TEX8_CBP << 37) | (1ULL << 61) /* CLD=load */;
+	s = _intr_suspend();
+	sc->gs_ok = true;
+	if (gs_trx_to(sc, TEX8_TBP, tex8_tbw(sc), PSM_T8, sc->width, sc->height) &&
+	    gs_qw(sc, nqw | 0x8000 | (2ULL << 58), 0)) {
+		for (i = 0; i < nqw; i++)
+			if (!gs_qw(sc, p[2 * i], p[2 * i + 1]))
+				goto out;
+		(void)(gs_qw(sc, 7 | 0x8000 | (1ULL << 60), 0xe) &&
+		    gs_qw(sc, 0, 0x3f) /* TEXFLUSH */ &&
+		    gs_qw(sc, tex0, 0x07) /* TEX0_2 */ &&
+		    gs_qw(sc, 6 | 0x10 | 0x100 | 0x200, 0x00) /* PRIM sprite */ &&
+		    gs_qw(sc, 0, 0x03) /* UV */ &&
+		    gs_qw(sc, 2048ULL << 4 | (2048ULL << 4) << 16, 0x05) /* XYZ2 */ &&
+		    gs_qw(sc, h16 << 16 | w16, 0x03) &&
+		    gs_qw(sc, ((2048ULL << 4) + w16) |
+		        (((2048ULL << 4) + h16) << 16), 0x05));
 	}
 out:
 	_intr_resume(s);
@@ -292,7 +403,10 @@ ps2fb_eraserows(void *c, int row, int nrows, long attr)
 static void
 ps2fb_flush_all(struct ps2fb_softc *sc)
 {
-	gs_upload(sc, 0, 0, sc->width, sc->height);
+	if (sc->depth == 8)
+		gs_present8(sc);
+	else
+		gs_upload(sc, 0, 0, sc->width, sc->height);
 }
 
 static void
@@ -307,16 +421,23 @@ ps2fb_flush_tick(void *arg)
 }
 
 static void
-ps2fb_set_mode(struct ps2fb_softc *sc, u_int w, u_int h)
+ps2fb_set_mode(struct ps2fb_softc *sc, u_int w, u_int h, u_int depth)
 {
 	sc->width = w;
 	sc->height = h;
+	sc->depth = depth;
 	gs_program_display(sc);
+	if (depth == 8) {
+		gs_setup8(sc);
+		gs_load_clut(sc);
+	}
 }
 
 static const struct ps2fb_mode ps2fb_modes[] = {
 	{ 640, 480, 32 },
 	{ 320, 240, 32 },
+	{ 640, 480, 8 },
+	{ 320, 240, 8 },
 };
 
 static void
@@ -361,10 +482,18 @@ ps2fb_init_screen(void *cookie, struct vcons_screen *scr, int existing,
 static int
 ps2fb_fbinfo(struct ps2fb_softc *sc, struct wsdisplayio_fbinfo *fbi)
 {
-	fbi->fbi_width = sc->width;
-	fbi->fbi_height = sc->height;
-	fbi->fbi_stride = sc->width * 4;
-	fbi->fbi_bitsperpixel = 32;
+	fbi->fbi_width = sc->dw;
+	fbi->fbi_height = sc->dh;
+	fbi->fbi_stride = sc->dw * sc->dd / 8;
+	fbi->fbi_bitsperpixel = sc->dd;
+	fbi->fbi_flags = 0;
+	fbi->fbi_fboffset = 0;
+	fbi->fbi_fbsize = sc->dw * sc->dh * sc->dd / 8;
+	if (sc->dd == 8) {
+		fbi->fbi_pixeltype = WSFB_CI;
+		fbi->fbi_subtype.fbi_cmapinfo.cmap_entries = 256;
+		return 0;
+	}
 	fbi->fbi_pixeltype = WSFB_RGB;
 	fbi->fbi_subtype.fbi_rgbmasks.red_offset = 0;
 	fbi->fbi_subtype.fbi_rgbmasks.red_size = 8;
@@ -374,9 +503,34 @@ ps2fb_fbinfo(struct ps2fb_softc *sc, struct wsdisplayio_fbinfo *fbi)
 	fbi->fbi_subtype.fbi_rgbmasks.blue_size = 8;
 	fbi->fbi_subtype.fbi_rgbmasks.alpha_offset = 0;
 	fbi->fbi_subtype.fbi_rgbmasks.alpha_size = 0;
-	fbi->fbi_flags = 0;
-	fbi->fbi_fbsize = sc->width * sc->height * 4;
-	fbi->fbi_fboffset = 0;
+	return 0;
+}
+
+static int
+ps2fb_cmap(struct ps2fb_softc *sc, u_long cmd, void *data)
+{
+	struct wsdisplay_cmap *cm = data;
+	u_int i, idx = cm->index, n = cm->count;
+	uint8_t t[3][256];
+	int error, c;
+	u_char *const up[3] = { cm->red, cm->green, cm->blue };
+
+	if (idx >= 256 || n > 256 - idx)
+		return EINVAL;
+	if (cmd == WSDISPLAYIO_GETCMAP) {
+		for (c = 0; c < 3; c++)
+			if ((error = copyout(&sc->cmap[c][idx], up[c], n)) != 0)
+				return error;
+		return 0;
+	}
+	for (c = 0; c < 3; c++)
+		if ((error = copyin(up[c], &t[c][0], n)) != 0)
+			return error;
+	for (c = 0; c < 3; c++)
+		for (i = 0; i < n; i++)
+			sc->cmap[c][idx + i] = t[c][i];
+	if (sc->depth == 8)
+		gs_load_clut(sc);
 	return 0;
 }
 
@@ -398,14 +552,17 @@ ps2fb_ioctl(void *v, void *vs, u_long cmd, void *data, int flag,
 		return 0;
 	case WSDISPLAYIO_GINFO:
 		wdf = data;
-		wdf->height = sc->height;
-		wdf->width = sc->width;
-		wdf->depth = 32;
-		wdf->cmsize = 0;
+		wdf->height = sc->dh;
+		wdf->width = sc->dw;
+		wdf->depth = sc->dd;
+		wdf->cmsize = sc->dd == 8 ? 256 : 0;
 		return 0;
 	case WSDISPLAYIO_LINEBYTES:
-		*(u_int *)data = sc->width * 4;
+		*(u_int *)data = sc->dw * sc->dd / 8;
 		return 0;
+	case WSDISPLAYIO_GETCMAP:
+	case WSDISPLAYIO_PUTCMAP:
+		return ps2fb_cmap(sc, cmd, data);
 	case WSDISPLAYIO_GET_FBINFO:
 		return ps2fb_fbinfo(sc, data);
 	case WSDISPLAYIO_GVIDEO:
@@ -425,11 +582,17 @@ ps2fb_ioctl(void *v, void *vs, u_long cmd, void *data, int flag,
 		splx(s);
 		if (nm == WSDISPLAYIO_MODE_EMUL) {
 			callout_stop(&sc->flush_ch);
-			if (sc->width != TEXT_WIDTH || sc->height != TEXT_HEIGHT)
-				ps2fb_set_mode(sc, TEXT_WIDTH, TEXT_HEIGHT);
+			if (sc->width != TEXT_WIDTH ||
+			    sc->height != TEXT_HEIGHT || sc->depth != 32)
+				ps2fb_set_mode(sc, TEXT_WIDTH, TEXT_HEIGHT, 32);
 			if (ms != NULL)
 				vcons_redraw_screen(ms);
 		} else {
+			if (sc->width != sc->dw || sc->height != sc->dh ||
+			    sc->depth != sc->dd) {
+				ps2fb_set_mode(sc, sc->dw, sc->dh, sc->dd);
+				memset(sc->shadow, 0, sc->shadow_size);
+			}
 			ps2fb_flush_all(sc);
 			if (sc->rate != 0)
 				callout_schedule(&sc->flush_ch,
@@ -444,16 +607,22 @@ ps2fb_ioctl(void *v, void *vs, u_long cmd, void *data, int flag,
 		*pm = ps2fb_modes[i];
 		return 0;
 	case PS2FBIO_SMODE:
+		/* Remembered for DUMBFB sessions; applied now if in one. */
 		pm = data;
-		if (sc->mode == WSDISPLAYIO_MODE_EMUL)
-			return EBUSY;
 		for (i = 0; i < __arraycount(ps2fb_modes); i++)
 			if (ps2fb_modes[i].width == pm->width &&
 			    ps2fb_modes[i].height == pm->height &&
-			    (pm->depth == 0 || pm->depth == 32)) {
-				ps2fb_set_mode(sc, pm->width, pm->height);
-				memset(sc->shadow, 0, sc->shadow_size);
-				ps2fb_flush_all(sc);
+			    (pm->depth == 0 ? ps2fb_modes[i].depth == 32 :
+			    ps2fb_modes[i].depth == pm->depth)) {
+				sc->dw = pm->width;
+				sc->dh = pm->height;
+				sc->dd = ps2fb_modes[i].depth;
+				if (sc->mode != WSDISPLAYIO_MODE_EMUL) {
+					ps2fb_set_mode(sc, sc->dw, sc->dh,
+					    sc->dd);
+					memset(sc->shadow, 0, sc->shadow_size);
+					ps2fb_flush_all(sc);
+				}
 				return 0;
 			}
 		return EINVAL;
@@ -525,6 +694,15 @@ ps2fb_attach(device_t parent, device_t self, void *aux)
 	sc->sc_dev = self;
 	sc->width = TEXT_WIDTH;
 	sc->height = TEXT_HEIGHT;
+	sc->depth = 32;
+	sc->dw = TEXT_WIDTH;
+	sc->dh = TEXT_HEIGHT;
+	sc->dd = 32;
+	for (u_int i = 0; i < 256; i++) {	/* default palette: RGB332 */
+		sc->cmap[0][i] = (i >> 5) * 255 / 7;
+		sc->cmap[1][i] = ((i >> 2) & 7) * 255 / 7;
+		sc->cmap[2][i] = (i & 3) * 255 / 3;
+	}
 	sc->mode = WSDISPLAYIO_MODE_EMUL;
 	sc->video_on = true;
 	sc->gs_ok = true;
