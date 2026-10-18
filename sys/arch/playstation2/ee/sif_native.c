@@ -770,6 +770,7 @@ done:
 			return;
 		}
 		struct ps2sif_attach_args sa = {
+		    .name = "ohci",
 		    .dmat = ps2_iopdma_init(pool, poolsize)
 		};
 		if (sa.dmat == NULL) {
@@ -782,6 +783,8 @@ done:
 #ifdef PS2_IOP_BOOTSTRAP
 		bootstrap_selftest(self);
 #endif
+		config_found(self, &sa, NULL, CFARGS_NONE);
+		sa.name = "spd";
 		config_found(self, &sa, NULL, CFARGS_NONE);
 	}
 }

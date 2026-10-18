@@ -79,7 +79,8 @@ static int
 native_match(device_t parent, cfdata_t cf, void *aux)
 {
 	struct ps2sif_attach_args *sa = aux;
-	return sa->dmat != NULL;
+	return sa->name != NULL && strcmp(sa->name, "ohci") == 0 &&
+	    sa->dmat != NULL;
 }
 
 static int

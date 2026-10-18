@@ -3,6 +3,7 @@
 #define _PS2_SIF_NATIVE_H_
 #include <machine/bus.h>
 struct ps2sif_attach_args {
+	const char *name;
 	bus_dma_tag_t dmat;
 };
 /* RPC APIs: sleepable thread/autoconfiguration context, never interrupt. */

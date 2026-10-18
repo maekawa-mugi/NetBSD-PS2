@@ -81,6 +81,7 @@ file	arch/playstation2/dev/ohci_sbus.c		ohci_sbus
 define	spd {}
 device	spd: spd
 attach	spd at sbus
+attach	spd at ps2sif with spd_ps2native
 file	arch/playstation2/dev/spd.c			spd
 
 define	emac3

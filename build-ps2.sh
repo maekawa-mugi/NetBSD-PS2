@@ -17,7 +17,7 @@ build()
 
 build tools >build/ps2/logs/tools.log 2>&1
 case "$kernel" in
-PS2IOPBOOT) sh ./build-ps2-iop.sh >build/ps2/logs/native-iop.log 2>&1 ;;
+PS2IOPBOOT|PS2NET) sh ./build-ps2-iop.sh >build/ps2/logs/native-iop.log 2>&1 ;;
 esac
 build "kernel=$kernel" >build/ps2/logs/kernel.log 2>&1
 cp "build/ps2/obj/sys/arch/playstation2/compile/$kernel/netbsd" \

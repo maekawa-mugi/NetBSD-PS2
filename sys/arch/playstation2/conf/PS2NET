@@ -1,0 +1,7 @@
+# Ethernet bring-up: native USB IRQ relay and polled SPD/SMAP PIO.
+include "arch/playstation2/conf/PS2IOPBOOT"
+no options MEMORY_DISK_ROOT_SIZE
+options MEMORY_DISK_ROOT_SIZE=32768
+spd* at ps2sif?
+smap* at spd?
+ukphy* at mii? phy ?

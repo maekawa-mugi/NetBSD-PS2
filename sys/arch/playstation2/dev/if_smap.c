@@ -95,8 +95,8 @@ struct smap_softc {
 
 	u_int32_t *tx_buf;
 	u_int32_t *rx_buf;
-	struct smap_desc *tx_desc;
-	struct smap_desc *rx_desc;
+	volatile struct smap_desc *tx_desc;
+	volatile struct smap_desc *rx_desc;
 
 #define	SMAP_FIFO_ALIGN		4
 	int tx_buf_freesize;	/* buffer usage */
@@ -319,7 +319,7 @@ void
 smap_rxeof(void *arg)
 {
 	struct smap_softc *sc = arg;
-	struct smap_desc *d;
+	volatile struct smap_desc *d;
 	struct ifnet *ifp = &sc->ethercom.ec_if;
 	struct mbuf *m;
 	u_int16_t r16, stat;
@@ -330,7 +330,7 @@ smap_rxeof(void *arg)
 
 	i = sc->rx_done_index;
 
-	for (cnt = 0;; cnt++, i = (i + 1) & 0x3f) {
+	for (cnt = 0; cnt < SMAP_DESC_MAX; cnt++, i = (i + 1) & 0x3f) {
 		m = NULL;
 		d = &sc->rx_desc[i];
 		stat = d->stat;
@@ -343,6 +343,12 @@ smap_rxeof(void *arg)
 		}
 
 		sz = d->sz;
+		/* Hardware descriptor lengths must be bounded in non-DIAGNOSTIC
+		 * kernels too, before reading the FIFO into the fixed buffer. */
+		if (sz < ETHER_ADDR_LEN * 2 + ETHER_TYPE_LEN || sz > ETHER_MAX_LEN) {
+			if_statinc(ifp, if_ierrors);
+			goto next_packet;
+		}
 		rxsz = ROUND4(sz);
 
 		KDASSERT(sz >= ETHER_ADDR_LEN * 2 + ETHER_TYPE_LEN);
@@ -408,7 +414,7 @@ smap_txeof(void *arg)
 {
 	struct smap_softc *sc = arg;
 	struct ifnet *ifp = &sc->ethercom.ec_if;
-	struct smap_desc *d;
+	volatile struct smap_desc *d;
 	int i;
 
 	FUNC_ENTER();
@@ -417,7 +423,7 @@ smap_txeof(void *arg)
 	ifp->if_timer = 0;
 
 	/* garbage collect */
-	for (i = sc->tx_done_index;; i = (i + 1) & 0x3f) {
+	for (i = sc->tx_done_index; sc->tx_desc_cnt > 0; i = (i + 1) & 0x3f) {
 		u_int16_t stat;
 
 		d = &sc->tx_desc[i];
@@ -434,9 +440,6 @@ smap_txeof(void *arg)
 		} else {
 			if_statinc(ifp, if_opackets);
 		}
-
-		if (sc->tx_desc_cnt == 0)
-			break;
 
 		sc->tx_buf_freesize += ROUND4(d->sz);
 		sc->tx_desc_cnt--;
@@ -455,17 +458,24 @@ void
 smap_start(struct ifnet *ifp)
 {
 	struct smap_softc *sc = ifp->if_softc;
-	struct smap_desc *d;
+	volatile struct smap_desc *d;
 	struct mbuf *m0, *m;
 	u_int8_t *p, *q;
 	u_int32_t *r;
 	int i, sz, pktsz;
 	u_int16_t fifop;
 	u_int16_t r16;
+	int s;
 
 	KDASSERT(ifp->if_flags & IFF_RUNNING);
 	FUNC_ENTER();
 
+	/*
+	 * The native SPD poll callout (softclock) runs smap_intr() and can
+	 * preempt a transmit started from thread context; serialize the
+	 * descriptor/FIFO bookkeeping against it.
+	 */
+	s = splnet();
 	while (1) {
 		IFQ_POLL(&ifp->if_snd, m0);
 		if (m0 == NULL)
@@ -534,6 +544,7 @@ smap_start(struct ifnet *ifp)
  end:
 	/* set watchdog timer */
 	ifp->if_timer = 5;
+	splx(s);
 
 	FUNC_EXIT();
 }
@@ -640,7 +651,7 @@ smap_fifo_reset(bus_addr_t a)
 void
 smap_desc_init(struct smap_softc *sc)
 {
-	struct smap_desc *d;
+	volatile struct smap_desc *d;
 	int i;
 
 	sc->tx_desc = (void *)SMAP_TXDESC_BASE;
@@ -650,6 +661,7 @@ smap_desc_init(struct smap_softc *sc)
 	sc->tx_fifo_ptr = 0;
 	sc->tx_start_index = 0;
 	sc->tx_done_index = 0;
+	sc->tx_desc_cnt = 0;
 	sc->rx_done_index = 0;
 
 	/* initialize entry */

@@ -35,10 +35,17 @@ __KERNEL_RCSID(0, "$NetBSD: spd.c,v 1.16 2022/02/11 17:30:48 riastradh Exp $");
 #include <sys/param.h>
 #include <sys/device.h>
 #include <sys/systm.h>
+#include "opt_ps2_nosbios.h"
+#ifdef PS2_NOSBIOS
+#include <sys/callout.h>
+#endif
 
 #include <machine/bootinfo.h>
 
 #include <playstation2/ee/eevar.h>
+#ifdef PS2_NOSBIOS
+#include <playstation2/ee/sif_native.h>
+#endif
 #include <playstation2/dev/sbusvar.h>
 #include <playstation2/dev/spdvar.h>
 #include <playstation2/dev/spdreg.h>
@@ -63,7 +70,18 @@ STATIC struct {
 	const char *name;
 } __spd_table[2];
 
+#ifdef PS2_NOSBIOS
+struct native_spd {
+	callout_t poll;
+	bool stopping;
+	unsigned completions;
+};
+static void spd_native_poll(void *);
+static bool spd_native_shutdown(device_t, int);
+CFATTACH_DECL_NEW(spd_ps2native, sizeof(struct native_spd),
+#else
 CFATTACH_DECL_NEW(spd, 0,
+#endif
     spd_match, spd_attach, NULL, NULL);
 
 #ifdef DEBUG
@@ -73,9 +91,19 @@ CFATTACH_DECL_NEW(spd, 0,
 int
 spd_match(device_t parent, cfdata_t cf, void *aux)
 {
-	
+#ifdef PS2_NOSBIOS
+	struct ps2sif_attach_args *sa = aux;
+	if (sa->name == NULL || strcmp(sa->name, "spd") != 0)
+		return 0;
+	/* Expansion-bay registers must already be mapped/powered by firmware.
+	 * This probe does not claim an independent DEV9 power/reset sequence. */
+	u_int16_t revision = _reg_read_2(SPD_REVISION_REG16);
+	return revision != 0 && revision != 0xffff &&
+	    (_reg_read_2(SPD_CAPABILITIES_REG16) & SPD_CAP_SMAP);
+#else
 	return ((BOOTINFO_REF(BOOTINFO_DEVCONF) ==
 	    BOOTINFO_DEVCONF_SPD_PRESENT));
+#endif
 }
 
 void
@@ -83,8 +111,12 @@ spd_attach(device_t parent, device_t self, void *aux)
 {
 	struct spd_attach_args spa;
 
-	printf(": PlayStation 2 HDD Unit\n");
+	printf(": PlayStation 2 SPEED controller\n");
 
+#ifdef PS2_NOSBIOS
+	__spd_table[SPD_HDD].name = "native expansion bay ATA (unused)";
+	__spd_table[SPD_NIC].name = "native expansion bay SMAP";
+#else
 	switch (BOOTINFO_REF(BOOTINFO_PCMCIA_TYPE)) {
 	default:
 		__spd_table[0].name = "<unknown product>";
@@ -102,6 +134,7 @@ spd_attach(device_t parent, device_t self, void *aux)
 		__spd_table[SPD_NIC].name = "SCPH-10260";
 		break;
 	}
+#endif
 
 	/* disable all */
 	_reg_write_2(SPD_INTR_ENABLE_REG16, 0);
@@ -115,8 +148,47 @@ spd_attach(device_t parent, device_t self, void *aux)
 	spa.spa_product_name = __spd_table[SPD_NIC].name;
 	config_found(self, &spa, spd_print, CFARGS_NONE);
 
+#ifdef PS2_NOSBIOS
+	struct native_spd *sc = device_private(self);
+	callout_init(&sc->poll, 0);
+	callout_setfunc(&sc->poll, spd_native_poll, sc);
+	pmf_device_register1(self, NULL, NULL, spd_native_shutdown);
+	callout_schedule(&sc->poll, 1);
+	aprint_normal_dev(self, "native SPD completion polling (no SBIOS/SBUS IRQ)\n");
+#else
 	sbus_intr_establish(SBUS_IRQ_PCMCIA, spd_intr, 0);
+#endif
 }
+
+#ifdef PS2_NOSBIOS
+static void
+spd_native_poll(void *arg)
+{
+	struct native_spd *sc = arg;
+	int s = splnet();
+	if (!sc->stopping) {
+		if (_reg_read_2(SPD_INTR_STATUS_REG16) &
+		    _reg_read_2(SPD_INTR_ENABLE_REG16)) {
+			sc->completions++;
+			(void)spd_intr(NULL);
+		}
+		callout_schedule(&sc->poll, 1);
+	}
+	splx(s);
+}
+
+static bool
+spd_native_shutdown(device_t self, int flags)
+{
+	struct native_spd *sc = device_private(self);
+	(void)flags;
+	sc->stopping = true;
+	callout_stop(&sc->poll);
+	_reg_write_2(SPD_INTR_ENABLE_REG16, 0);
+	aprint_normal_dev(self, "native SPD stop: completions=%u\n", sc->completions);
+	return true;
+}
+#endif
 
 int
 spd_print(void *aux, const char *pnp)
