@@ -20,7 +20,7 @@ bin_progs="bin/cat bin/chmod bin/cp bin/csh bin/date bin/dd bin/df bin/echo bin/
     bin/sleep bin/stty bin/sync bin/test bin/rm bin/sh"
 sbin_progs="sbin/init sbin/mount sbin/umount sbin/mount_ffs sbin/mount_tmpfs sbin/fsck sbin/fsck_ffs
     sbin/newfs sbin/disklabel sbin/fdisk sbin/ifconfig sbin/route sbin/ping sbin/reboot sbin/shutdown
-    sbin/sysctl sbin/dmesg sbin/swapctl sbin/mknod sbin/chown sbin/rcorder sbin/ttyflags sbin/wsconsctl sbin/ldconfig sbin/dump"
+    sbin/sysctl sbin/dmesg sbin/swapctl sbin/mknod sbin/chown sbin/rcorder sbin/ttyflags sbin/wsconsctl sbin/ldconfig sbin/dump sbin/mount_ptyfs"
 usrbin_progs="usr.bin/basename usr.bin/cal usr.bin/cksum usr.bin/cmp usr.bin/cut usr.bin/diff
     usr.bin/dirname usr.bin/env usr.bin/false usr.bin/find usr.bin/fstat usr.bin/head
     usr.bin/hexdump usr.bin/id usr.bin/kdump usr.bin/ktrace usr.bin/ldd usr.bin/logger usr.bin/login
@@ -61,7 +61,7 @@ objpath()
 rm -rf "$tree"
 mkdir -p "$tree/bin" "$tree/sbin" "$tree/usr/bin" "$tree/usr/sbin" "$tree/usr/libexec" \
     "$tree/usr/share/misc" "$tree/dev" "$tree/etc" "$tree/root" "$tree/tmp" "$tree/var/run" \
-    "$tree/var/log" "$tree/var/tmp" "$tree/var/db" "$tree/mnt" "$tree/home" "$tree/libexec"
+    "$tree/var/log" "$tree/var/tmp" "$tree/var/db" "$tree/mnt" "$tree/home" "$tree/dev/pts" "$tree/libexec"
 
 install_group()
 {
@@ -121,6 +121,8 @@ if [ -x "$xd/bin/Xorg" ]; then
     for d in fonts/misc fonts/encodings xkb; do
         mkdir -p "$xt/lib/X11/$(dirname $d)"; cp -a "$xd/lib/X11/$d" "$xt/lib/X11/$d"
     done
+    mkdir -p "$xt/lib/X11/fonts/xft"
+    for f in 6x13 7x14 9x15 10x20; do cp "$xd/lib/X11/fonts/misc/$f.pcf.gz" "$xt/lib/X11/fonts/xft/"; done
     cp "$xd/lib/X11/rgb.txt" "$xd/lib/X11/XErrorDB" "$xd/lib/X11/XKeysymDB" "$xt/lib/X11/" 2>/dev/null || true
     [ -d "$xd/lib/X11/app-defaults" ] && cp -a "$xd/lib/X11/app-defaults" "$xt/lib/X11/"
     "$tools/mipsel--netbsd-strip" "$xt"/bin/* 2>/dev/null || true
@@ -160,6 +162,8 @@ spec="$out/root.mtree"
 ./dev/rwd0c type=char mode=0640 device=native,10,2
 ./dev/wd1b type=block mode=0640 device=native,1,17
 ./dev/rwd1b type=char mode=0640 device=native,10,17
+./dev/ptm type=char mode=0666 device=native,165,1
+./dev/ptmx type=char mode=0666 device=native,165,0
 ./dev/ttyE0 type=char mode=0600 device=native,27,0
 ./dev/ttyE1 type=char mode=0600 device=native,27,1
 ./dev/ttyE2 type=char mode=0600 device=native,27,2

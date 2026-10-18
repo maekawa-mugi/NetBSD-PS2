@@ -34,6 +34,7 @@ chmod 1777 "$tree/tmp" "$tree/var/tmp"
 cat >"$etc/fstab" <<'X'
 /dev/wd0a	/	ffs	rw	1 1
 /dev/wd1b	none	swap	sw	0 0
+ptyfs	/dev/pts	ptyfs	rw	0 0
 X
 cat >"$etc/ttys" <<'X'
 # name  getty                         type    status  comment
@@ -180,8 +181,17 @@ Section "ServerLayout"
 EndSection
 X
 cat >"$tree/root/.xinitrc" <<'X'
+export FONTCONFIG_FILE=/etc/fonts/fonts.conf
 xsetroot -solid steelblue
 xclock -geometry 100x100-0+0 &
 xterm -geometry 80x24+10+10 -bg black -fg green &
 exec twm
+X
+mkdir -p "$etc/fonts" "$tree/var/cache/fontconfig"
+cat >"$etc/fonts/fonts.conf" <<'X'
+<?xml version="1.0"?>
+<fontconfig>
+	<dir>/usr/X11R7/lib/X11/fonts/xft</dir>
+	<cachedir>/var/cache/fontconfig</cachedir>
+</fontconfig>
 X
