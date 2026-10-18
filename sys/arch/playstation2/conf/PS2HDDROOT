@@ -1,0 +1,5 @@
+# Root filesystem on the native expansion-bay HDD (wd0a, FFS).
+include "arch/playstation2/conf/PS2HDD"
+no options MEMORY_DISK_IS_ROOT
+no config netbsd
+config netbsd root on wd0a type ffs

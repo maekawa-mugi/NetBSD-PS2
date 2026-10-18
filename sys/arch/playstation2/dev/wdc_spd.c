@@ -34,6 +34,7 @@ __KERNEL_RCSID(0, "$NetBSD: wdc_spd.c,v 1.30 2023/12/20 15:29:05 thorpej Exp $")
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include "opt_ps2_nosbios.h"
 
 #define __read_1(a)							\
 ({									\
@@ -172,10 +173,10 @@ wdc_spd_match(device_t parent, cfdata_t cf, void *aux)
 
 	__wdc_spd_bus_space(&wdr);
 
-	for (i = 0, result = 0; i < 8; i++) { /* 8 sec */
+	for (i = 0, result = 0; i < 8 && result == 0; i++) { /* up to 8 sec */
+		result = wdcprobe(&wdr);
 		if (result == 0)
-			result = wdcprobe(&wdr);
-		delay(1000000);
+			delay(1000000);
 	}
 	
 	return (result);
@@ -194,15 +195,20 @@ wdc_spd_attach(device_t parent, device_t self, void *aux)
 	sc->sc_wdcdev.sc_atac.atac_dev = self;
 	sc->sc_wdcdev.regs = &sc->sc_wdc_regs;
 
+#ifdef PS2_NOSBIOS
+	/* PIO only until an IOP-side DEV9 DMA path exists. */
+	wdc->sc_atac.atac_cap = ATAC_CAP_DATA16;
+#else
 	wdc->sc_atac.atac_cap =
 	    ATAC_CAP_DMA | ATAC_CAP_UDMA | ATAC_CAP_DATA16;
+#endif
 	wdc->sc_atac.atac_pio_cap = 0;
 	sc->sc_chanlist[0] = &sc->sc_channel;
 	wdc->sc_atac.atac_channels = sc->sc_chanlist;
 	wdc->sc_atac.atac_nchannels = 1;
 	ch->ch_channel = 0;
 	ch->ch_atac = &sc->sc_wdcdev.sc_atac;
-	ch->ch_ndrives = 2;
+	wdc->wdc_maxdrives = 2;
 
 	__wdc_spd_bus_space(CHAN_TO_WDC_REGS(ch));
 
