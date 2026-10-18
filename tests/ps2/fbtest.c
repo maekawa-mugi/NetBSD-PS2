@@ -4,6 +4,7 @@
  */
 #include <sys/types.h>
 #include <sys/ioctl.h>
+#include <sys/time.h>
 #include <sys/mman.h>
 #include <dev/wscons/wsconsio.h>
 #include <ps2fbio.h>
@@ -74,7 +75,7 @@ main(int argc, char **argv)
 {
 	const char *dev = "/dev/ttyE1";
 	u_int secs = 5, w = 0, h = 0, rate, bpp = 32;
-	int ch, fd, mode, setonly = 0;
+	int ch, fd, mode, setonly = 0, nflush = 0;
 	struct wsdisplay_fbinfo fi;
 	struct wsdisplayio_fbinfo fbi;
 	struct ps2fb_mode pm;
@@ -82,13 +83,14 @@ main(int argc, char **argv)
 	size_t size;
 	uint32_t *fb;
 
-	while ((ch = getopt(argc, argv, "d:t:m:b:s")) != -1) {
+	while ((ch = getopt(argc, argv, "d:t:m:b:sn:")) != -1) {
 		switch (ch) {
 		case 'd': dev = optarg; break;
 		case 't': secs = atoi(optarg); break;
 		case 'm': if (sscanf(optarg, "%ux%u", &w, &h) != 2)
 				errx(1, "bad mode"); break;
 		case 's': setonly = 1; break;
+		case 'n': nflush = atoi(optarg); break;
 		case 'b': bpp = atoi(optarg); break;
 		default: errx(1, "usage");
 		}
@@ -140,6 +142,20 @@ main(int argc, char **argv)
 		err(1, "SRATE");
 	if (ioctl(fd, PS2FBIO_FLUSH) < 0)
 		err(1, "FLUSH");
+	if (nflush > 0) {
+		struct timeval t0, t1;
+		double ms;
+
+		rate = 0;
+		(void)ioctl(fd, PS2FBIO_SRATE, &rate);
+		gettimeofday(&t0, NULL);
+		for (int i = 0; i < nflush; i++)
+			(void)ioctl(fd, PS2FBIO_FLUSH);
+		gettimeofday(&t1, NULL);
+		ms = (t1.tv_sec - t0.tv_sec) * 1000.0 +
+		    (t1.tv_usec - t0.tv_usec) / 1000.0;
+		printf("%d flushes: %.1f ms each\n", nflush, ms / nflush);
+	}
 	printf("painted; holding %u s\n", secs);
 	fflush(stdout);
 	sleep(secs);

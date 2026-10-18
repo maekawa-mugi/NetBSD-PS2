@@ -104,6 +104,61 @@ gs_qw(struct ps2fb_softc *sc, uint64_t lo, uint64_t hi)
 	return true;
 }
 
+/* Push nqw quadwords (16-byte aligned) into the GIF FIFO, filling it in batches. */
+static bool
+gs_push(struct ps2fb_softc *sc, const void *src, u_int nqw)
+{
+	const uint8_t *p = src;
+	unsigned timeout = 1000000;
+
+	while (nqw > 0) {
+		u_int room = 16 - ((GIF_STAT >> 24) & 31), n;
+
+		if (room == 0 || room > 16) {
+			if (--timeout == 0) {
+				sc->gs_ok = false;
+				return false;
+			}
+			continue;
+		}
+		n = MIN(room, nqw);
+		nqw -= n;
+		while (n-- > 0) {
+			__asm volatile("lq $8,0(%0); sq $8,0(%1)"
+			    :: "r"(p), "r"(MIPS_PHYS_TO_KSEG1(0x10006000))
+			    : "$8", "memory");
+			p += 16;
+		}
+		__asm volatile("sync.p" ::: "memory");
+	}
+	return true;
+}
+
+#define D2_CHCR	(*(volatile uint32_t *)MIPS_PHYS_TO_KSEG1(0x1000a000))
+#define D2_MADR	(*(volatile uint32_t *)MIPS_PHYS_TO_KSEG1(0x1000a010))
+#define D2_QWC	(*(volatile uint32_t *)MIPS_PHYS_TO_KSEG1(0x1000a020))
+
+/* Send nqw quadwords of the shadow buffer (at byte offset off) through DMA channel 2. */
+static bool
+gs_dma(struct ps2fb_softc *sc, size_t off, u_int nqw)
+{
+	unsigned timeout = 10000000;
+
+	mips_dcache_wb_range((vaddr_t)sc->shadow + off, (vsize_t)nqw * 16);
+	__asm volatile("sync" ::: "memory");
+	D2_MADR = sc->shadow_pa + off;
+	D2_QWC = nqw;
+	__asm volatile("sync" ::: "memory");
+	D2_CHCR = 0x101;	/* DIR=from memory, normal mode, STR */
+	__asm volatile("sync" ::: "memory");
+	while (D2_CHCR & 0x100)
+		if (--timeout == 0) {
+			sc->gs_ok = false;
+			return false;
+		}
+	return true;
+}
+
 /* BITBLTBUF/TRXPOS/TRXREG/TRXDIR via PACKED A+D. */
 static bool
 gs_trx(struct ps2fb_softc *sc, u_int x, u_int y, u_int w, u_int h, u_int sy,
@@ -152,7 +207,7 @@ static void
 gs_upload_band(struct ps2fb_softc *sc, u_int x, u_int y, u_int w, u_int h)
 {
 	u_int nqw, i, j, n;
-	uint32_t pix[4];
+	uint32_t pix[4] __aligned(16);
 	int s;
 
 	if (!sc->gs_ok)
@@ -161,25 +216,33 @@ gs_upload_band(struct ps2fb_softc *sc, u_int x, u_int y, u_int w, u_int h)
 	s = _intr_suspend();
 	if (gs_trx(sc, x, y, w, h, 0, false) &&
 	    gs_qw(sc, nqw | 0x8000 | (2ULL << 58), 0)) {
-		n = 0;
-		for (j = 0; j < h; j++) {
-			const uint32_t *p = sc->shadow + (y + j) * sc->width + x;
-			for (i = 0; i < w; i++) {
-				pix[n++] = p[i];
-				if (n == 4) {
-					if (!gs_qw(sc,
-					    ((uint64_t)pix[1] << 32) | pix[0],
-					    ((uint64_t)pix[3] << 32) | pix[2]))
-						goto out;
-					n = 0;
+		if (x == 0 && w == sc->width && (w * h) % 4 == 0) {
+			/* contiguous rows: DMA straight from the shadow */
+			(void)gs_dma(sc, (size_t)y * w * 4, nqw);
+		} else if ((x % 4) == 0 && (w % 4) == 0) {
+			for (j = 0; j < h; j++)
+				if (!gs_push(sc, sc->shadow + (y + j) *
+				    sc->width + x, w / 4))
+					break;
+		} else {
+			n = 0;
+			for (j = 0; j < h; j++) {
+				const uint32_t *p = sc->shadow +
+				    (y + j) * sc->width + x;
+				for (i = 0; i < w; i++) {
+					pix[n++] = p[i];
+					if (n == 4) {
+						if (!gs_push(sc, pix, 1))
+							goto out;
+						n = 0;
+					}
 				}
 			}
-		}
-		if (n != 0) {
-			for (i = n; i < 4; i++)
-				pix[i] = 0;
-			gs_qw(sc, ((uint64_t)pix[1] << 32) | pix[0],
-			    ((uint64_t)pix[3] << 32) | pix[2]);
+			if (n != 0) {
+				for (i = n; i < 4; i++)
+					pix[i] = 0;
+				(void)gs_push(sc, pix, 1);
+			}
 		}
 	}
 out:
@@ -258,7 +321,6 @@ gs_load_clut(struct ps2fb_softc *sc)
 static void
 gs_present8(struct ps2fb_softc *sc)
 {
-	const uint64_t *p = (const uint64_t *)(void *)sc->shadow;
 	u_int nqw = sc->width * sc->height / 16, i;
 	uint64_t tex0, w16 = (uint64_t)sc->width << 4, h16 = (uint64_t)sc->height << 4;
 	int s;
@@ -271,9 +333,13 @@ gs_present8(struct ps2fb_softc *sc)
 	sc->gs_ok = true;
 	if (gs_trx_to(sc, TEX8_TBP, tex8_tbw(sc), PSM_T8, sc->width, sc->height) &&
 	    gs_qw(sc, nqw | 0x8000 | (2ULL << 58), 0)) {
-		for (i = 0; i < nqw; i++)
-			if (!gs_qw(sc, p[2 * i], p[2 * i + 1]))
+		for (i = 0; i < nqw; ) {
+			u_int n = MIN(nqw - i, 32767);
+
+			if (!gs_dma(sc, (size_t)i * 16, n))
 				goto out;
+			i += n;
+		}
 		(void)(gs_qw(sc, 7 | 0x8000 | (1ULL << 60), 0xe) &&
 		    gs_qw(sc, 0, 0x3f) /* TEXFLUSH */ &&
 		    gs_qw(sc, tex0, 0x07) /* TEX0_2 */ &&

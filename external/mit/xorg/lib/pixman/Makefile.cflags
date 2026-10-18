@@ -27,13 +27,17 @@ CPPFLAGS+=	-DUSE_ARM_A64_NEON
 CPPFLAGS+=	-DUSE_LOONGSON_MMI
 .endif
 
+.if ${MACHINE} == "playstation2"
+CPPFLAGS+=	-DUSE_EE_MMI
+.endif
+
 .if !empty(MACHINE_ARCH:Mriscv*)
 # RISC-V RVV; Needs NetBSD porting.
 CPPFLAGS+=	-DUSE_RVV
 .endif
 
 CPPFLAGS+=	-DHAVE_CONFIG_H \
-		-I${X11SRCDIR.pixman}/../include \
+		-I${X11SRCDIR}/external/mit/pixman/include \
 		-I${X11SRCDIR.pixman}/../combine \
 		-I${X11SRCDIR.pixman}/pixman
 

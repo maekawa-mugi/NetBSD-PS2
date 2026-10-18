@@ -6,6 +6,13 @@ NOLINT=	1	# defined
 
 LIB=		pixman-1
 
+# playstation2 builds only maekawa-mugi/pixman-retro (R5900 MMI backend)
+# in place of the xsrc pixman; headers/config still come from xsrc/include.
+.if ${MACHINE} == "playstation2"
+PIXMAN_RETRO?=	/home/mugi/pixman-retro-src
+X11SRCDIR.pixman:=	${PIXMAN_RETRO}
+.endif
+
 DIST=	${X11SRCDIR.pixman}/pixman
 .PATH:	${DIST}
 
@@ -104,6 +111,16 @@ SRCS+=		pixman-mmx.c
 COPTS.pixman-mmx.c=	-march=loongson2f -mhard-float -Wa,-mhard-float
 .endif
 
+.if ${MACHINE} == "playstation2"
+# R5900 128-bit MMI backend
+SRCS+=	pixman-ee-mmi.c pixman-ee-mmi-over.c pixman-ee-mmi-ca.c \
+	pixman-ee-mmi-nearest.c pixman-ee-mmi-bilinear.c \
+	pixman-ee-mmi-asm.S pixman-ee-mmi-over-asm.S pixman-ee-mmi-a8-asm.S \
+	pixman-ee-mmi-image-a8-asm.S pixman-ee-mmi-ca-asm.S \
+	pixman-ee-mmi-image-ca-asm.S pixman-ee-mmi-565-asm.S \
+	pixman-ee-mmi-scale-asm.S
+.endif
+
 .if ${MACHINE_CPU} == "sh3"
 # XXX pixman-fast-path.c:1204:1: internal compiler error: Segmentation fault
 COPTS.pixman-fast-path.c+=	-O1
@@ -122,8 +139,9 @@ INCSDIR=${X11INCDIR}/pixman-1
 LIBDPLIBS=	m	${.CURDIR}/../../../../../lib/libm
 
 PKGCONFIG=      pixman-1
-PKGDIST.pixman-1=       ${X11SRCDIR.pixman}/../include/pixman-1.pc
-.PATH: ${X11SRCDIR.pixman}/../include
+PIXMANINC=	${X11SRCDIR}/external/mit/pixman/include
+PKGDIST.pixman-1=       ${PIXMANINC}/pixman-1.pc
+.PATH: ${PIXMANINC}
 
 .include <bsd.x11.mk>
 .include <bsd.lib.mk>

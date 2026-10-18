@@ -19,7 +19,7 @@ for dir in "$@"; do
     name=$(printf '%s' "$dir" | tr / _)
     log="$src/build/ps2/user-n32-pic/logs/x-$name.log"
     mkdir -p "$src/build/ps2/user-n32-pic/logs"
-    xargs_="X11SRCDIR=$xsrc MKX11=yes MKXORG=yes MKXORG_SERVER=yes MKSHARE=yes MKX11FONTS=${MKX11FONTS:-no} MKGCC=no MKLLVM=no NOGCCERROR=yes CPP=$src/build/ps2/user-n32-pic/cpp"
+    xargs_="X11SRCDIR=$xsrc PIXMAN_RETRO=${PIXMAN_RETRO:-/home/mugi/pixman-retro-src} MKX11=yes MKXORG=yes MKXORG_SERVER=yes MKSHARE=yes MKX11FONTS=${MKX11FONTS:-no} MKGCC=no MKLLVM=no NOGCCERROR=yes CPP=$src/build/ps2/user-n32-pic/cpp"
     {
         PIC=yes sh ./build-ps2-user.sh make -C "$dir" obj $xargs_ &&
         PIC=yes sh ./build-ps2-user.sh make -C "$dir" includes $xargs_ &&
