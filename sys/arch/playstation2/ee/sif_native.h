@@ -25,6 +25,19 @@ int ps2sif_usb_intr_establish(int (*)(void *), void *);
 void ps2sif_usb_intr_poll(void);
 void ps2sif_usb_intr_stop(void);
 bool ps2sif_usb_intr_active(void);
+/* Single DEV9/SPEED IRQ13 owner (same rules as USB). The handler must restore
+ * the SPEED interrupt enable register, which the IOP clears at IRQ entry. */
+int ps2sif_dev9_intr_establish(int (*)(void *), void *);
+void ps2sif_dev9_intr_poll(void);
+void ps2sif_dev9_intr_stop(void);
+bool ps2sif_dev9_intr_active(void);
+/* DEV9 DMAC channel 8 via the resident module (op: PS2_DEV9_DMA_*, bytes a
+ * multiple of 128). Non-sleeping; usable at splbio. */
+int ps2sif_dev9_dma(unsigned, uint32_t, uint32_t);
+unsigned ps2sif_dev9_dma_state(void);
+void ps2sif_dev9_dma_info(unsigned *, unsigned *, unsigned *);
+/* Uncached EE view of IOP RAM (allocated with ps2sif_alloc). */
+void *ps2sif_iop_window(uint32_t);
 /* Reserve once at attach; USB suballocations need no further RPC. */
 bus_dma_tag_t ps2_iopdma_init(uint32_t, size_t);
 #endif

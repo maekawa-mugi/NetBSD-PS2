@@ -87,7 +87,7 @@ file	arch/playstation2/dev/spd.c			spd
 define	emac3
 file	arch/playstation2/dev/emac3.c			emac3
 
-attach	wdc at spd with wdc_spd
+attach	wdc at spd with wdc_spd: ata_dma, ata_udma
 file	arch/playstation2/dev/wdc_spd.c			wdc_spd
 
 device	smap: emac3, ether, ifnet, arp, mii

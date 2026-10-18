@@ -43,6 +43,11 @@ struct spd_attach_args {
 void *spd_intr_establish(enum spd_slot, int (*)(void *), void *);
 void spd_intr_disestablish(void *);
 
+/* SPEED interrupt enable. The software shadow is authoritative: the IOP relay
+ * clears the hardware register at IRQ entry and the next set() rearms it. */
+u_int16_t spd_intr_enable_get(void);
+void spd_intr_enable_set(u_int16_t);
+
 /* EEPROM */
 void spd_eeprom_read(int, u_int16_t *, int);
 

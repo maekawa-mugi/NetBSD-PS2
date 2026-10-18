@@ -28,6 +28,7 @@
 #ifdef PS2_IOP_BOOTSTRAP
 #include <playstation2/iop/bootstrap.h>
 #include <playstation2/iop/usb_irq.h>
+#include <playstation2/iop/dev9_irq.h>
 #include <playstation2/ee/intcvar.h>
 #include <sys/intr.h>
 #include "ps2_iop_images.h"
@@ -545,7 +546,7 @@ bootstrap_selftest(device_t self)
 #ifdef PS2_IOP_BOOTSTRAP
 static volatile struct ps2_usb_irq_mailbox *usb_mailbox;
 static int (*usb_handler)(void *);
-static void *usb_context, *usb_ih;
+static void *usb_context;
 static bool usb_ready, usb_stopped;
 static unsigned usb_sbus_count, usb_recovered;
 
@@ -560,18 +561,63 @@ usb_mailbox_valid(void)
 	return true;
 }
 
+static volatile struct ps2_dev9_irq_mailbox *dev9_mailbox;
+static int (*dev9_handler)(void *);
+static void *dev9_context;
+static bool dev9_ready, dev9_stopped;
+static unsigned dev9_sbus_count, dev9_recovered;
+static void *relay_ih;
+
+static bool
+dev9_mailbox_valid(void)
+{
+	if (dev9_mailbox->magic != PS2_DEV9_IRQ_MAGIC)
+		return false;
+	for (unsigned i = 0; i < PS2_DEV9_IRQ_GUARDS; i++)
+		if (dev9_mailbox->guard[i] != PS2_DEV9_IRQ_GUARD)
+			return false;
+	return true;
+}
+
+/* INTC channel 1 is shared by the USB (SMFLAG 0x400) and DEV9 (0x800) relays. */
 static int
 usb_relay_intr(void *arg)
 {
+	uint32_t flags = REG(SIF_SMFLAG) & (0x400 | 0x800);
 	(void)arg;
-	if (!(REG(SIF_SMFLAG) & 0x400))
+	if (flags == 0)
 		return 0;
-	REG(SIF_SMFLAG) = 0x400;
+	REG(SIF_SMFLAG) = flags;
 	barrier();
-	usb_sbus_count++;
-	if (usb_ready && !usb_stopped)
-		ps2sif_usb_intr_poll();
+	if (flags & 0x400) {
+		usb_sbus_count++;
+		if (usb_ready && !usb_stopped)
+			ps2sif_usb_intr_poll();
+	}
+	if (flags & 0x800) {
+		dev9_sbus_count++;
+		if (dev9_ready && !dev9_stopped)
+			ps2sif_dev9_intr_poll();
+	}
 	return 1;
+}
+
+static void
+relay_attach(void)
+{
+	if (relay_ih == NULL)
+		relay_ih = intc_intr_establish(I_CH1_SBUS, IPL_NET,
+		    usb_relay_intr, NULL);
+}
+
+static void
+relay_detach_if_idle(void)
+{
+	if (relay_ih != NULL && (usb_stopped || !usb_ready) &&
+	    (dev9_stopped || !dev9_ready)) {
+		intc_intr_disestablish(relay_ih);
+		relay_ih = NULL;
+	}
 }
 #endif
 
@@ -637,7 +683,7 @@ ps2sif_usb_intr_establish(int (*handler)(void *), void *context)
 	usb_handler = handler;
 	usb_context = context;
 	REG(SIF_SMFLAG) = 0x400;
-	usb_ih = intc_intr_establish(I_CH1_SBUS, IPL_BIO, usb_relay_intr, NULL);
+	relay_attach();
 	char arg[9];
 	snprintf(arg, sizeof(arg), "%08x", address);
 	error = ps2sif_exec_irx(ps2_iop_usb_irq_image,
@@ -676,13 +722,176 @@ ps2sif_usb_intr_stop(void)
 	REG(0x1f801614) = 0x80000000U;
 	barrier();
 	REG(SIF_SMFLAG) = 0x400;
-	if (usb_ih != NULL) {
-		intc_intr_disestablish(usb_ih);
-		usb_ih = NULL;
-	}
+	relay_detach_if_idle();
 	printf("ps2sif: USB IRQ stop: IOP=%u SBUS=%u recovered=%u seq=%u ack=%u\n",
 	    usb_mailbox->interrupts, usb_sbus_count, usb_recovered,
 	    usb_mailbox->sequence, usb_mailbox->acknowledged);
+	splx(s);
+#endif
+}
+
+void
+ps2sif_dev9_intr_poll(void)
+{
+#ifdef PS2_IOP_BOOTSTRAP
+	if (!dev9_ready || dev9_stopped)
+		return;
+	int s = splnet();
+	if (!dev9_mailbox_valid()) {
+		dev9_stopped = true;
+		aprint_error("ps2sif: DEV9 IRQ mailbox corrupt; polling fallback\n");
+	} else {
+		uint32_t seq = dev9_mailbox->sequence;
+		if (seq != dev9_mailbox->acknowledged) {
+			if (REG(SIF_SMFLAG) & 0x800) {
+				REG(SIF_SMFLAG) = 0x800;
+				dev9_recovered++;
+			}
+			(void)dev9_handler(dev9_context);
+			dev9_mailbox->acknowledged = seq;
+			barrier();
+		}
+	}
+	splx(s);
+#endif
+}
+
+/* Hand a DMAC channel 8 request to the resident module through a SIF user
+ * command and wait for its acknowledgement. Never sleeps; the caller must
+ * not run concurrently with an RPC (none are issued after autoconfiguration). */
+int
+ps2sif_dev9_dma(unsigned op, uint32_t iop_addr, uint32_t bytes)
+{
+#ifdef PS2_IOP_BOOTSTRAP
+	uint32_t p[8] = {0};
+	static uint32_t dma_seq;
+	if (!dev9_ready || dev9_stopped)
+		return ENXIO;
+	uint32_t seq = ++dma_seq;
+	p[4] = op;
+	p[5] = iop_addr;
+	p[6] = bytes;
+	p[7] = seq;
+	int s = splhigh();
+	int error = send_command(p, sizeof(p), PS2_DEV9_CMD_CID);
+	splx(s);
+	if (error)
+		return error;
+	uint32_t start = ticks();
+	while (dev9_mailbox->dma_ack != seq) {
+		if ((uint32_t)(ticks() - start) > 147456000U / 10)
+			return ETIMEDOUT;
+	}
+	return 0;
+#else
+	(void)op; (void)iop_addr; (void)bytes;
+	return ENOTSUP;
+#endif
+}
+
+unsigned
+ps2sif_dev9_dma_state(void)
+{
+#ifdef PS2_IOP_BOOTSTRAP
+	return dev9_mailbox != NULL ? dev9_mailbox->dma_state : 0;
+#else
+	return 0;
+#endif
+}
+
+void
+ps2sif_dev9_dma_info(unsigned *cmds, unsigned *state, unsigned *bytes)
+{
+#ifdef PS2_IOP_BOOTSTRAP
+	*cmds = dev9_mailbox->dma_cmds;
+	*state = dev9_mailbox->dma_state;
+	*bytes = dev9_mailbox->dma_bytes;
+#else
+	*cmds = *state = *bytes = 0;
+#endif
+}
+
+void *
+ps2sif_iop_window(uint32_t address)
+{
+#ifdef PS2_IOP_BOOTSTRAP
+	return __UNVOLATILE(iop_window(address));
+#else
+	(void)address;
+	return NULL;
+#endif
+}
+
+bool
+ps2sif_dev9_intr_active(void)
+{
+#ifdef PS2_IOP_BOOTSTRAP
+	return dev9_ready && !dev9_stopped;
+#else
+	return false;
+#endif
+}
+
+int
+ps2sif_dev9_intr_establish(int (*handler)(void *), void *context)
+{
+#ifdef PS2_IOP_BOOTSTRAP
+	uint32_t address;
+	struct ps2sif_module_result result;
+	if (dev9_mailbox != NULL || handler == NULL)
+		return EBUSY;
+	int error = ps2sif_alloc(sizeof(*dev9_mailbox), &address);
+	if (error)
+		return error;
+	dev9_mailbox = (volatile struct ps2_dev9_irq_mailbox *)iop_window(address);
+	dev9_mailbox->magic = dev9_mailbox->sequence = 0;
+	dev9_mailbox->interrupts = dev9_mailbox->acknowledged = 0;
+	dev9_mailbox->status = 0;
+	dev9_mailbox->dma_cmds = dev9_mailbox->dma_ack = 0;
+	dev9_mailbox->dma_state = PS2_DEV9_DMA_IDLE;
+	dev9_mailbox->dma_bytes = dev9_mailbox->reserved = 0;
+	for (unsigned i = 0; i < PS2_DEV9_IRQ_GUARDS; i++)
+		dev9_mailbox->guard[i] = PS2_DEV9_IRQ_GUARD;
+	barrier();
+	dev9_handler = handler;
+	dev9_context = context;
+	REG(SIF_SMFLAG) = 0x800;
+	relay_attach();
+	char arg[9];
+	snprintf(arg, sizeof(arg), "%08x", address);
+	error = ps2sif_exec_irx(ps2_iop_dev9_irq_image,
+	    sizeof(ps2_iop_dev9_irq_image), arg, sizeof(arg), &result);
+	if (!error && (result.entry_result != 0 || !dev9_mailbox_valid()))
+		error = EPROTO;
+	if (error) {
+		printf("ps2sif: DEV9 relay load: error=%d id=%d entry=%d start=%d magic=%#x\n",
+		    error, result.module_id, result.entry_result, result.start_result,
+		    dev9_mailbox->magic);
+		ps2sif_dev9_intr_stop();
+		return error;
+	}
+	dev9_ready = true;
+	return 0;
+#else
+	(void)handler;
+	(void)context;
+	return ENOTSUP;
+#endif
+}
+
+void
+ps2sif_dev9_intr_stop(void)
+{
+#ifdef PS2_IOP_BOOTSTRAP
+	if (dev9_mailbox == NULL)
+		return;
+	int s = splnet();
+	dev9_stopped = true;
+	REG(SIF_SMFLAG) = 0x800;
+	relay_detach_if_idle();
+	printf("ps2sif: DEV9 IRQ stop: IOP=%u SBUS=%u recovered=%u seq=%u ack=%u\n",
+	    dev9_mailbox->interrupts, dev9_sbus_count, dev9_recovered,
+	    dev9_mailbox->sequence, dev9_mailbox->acknowledged);
 	splx(s);
 #endif
 }

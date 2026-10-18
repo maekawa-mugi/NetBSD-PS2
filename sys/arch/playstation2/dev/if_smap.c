@@ -170,10 +170,10 @@ smap_attach(struct device *parent, struct device *self, void *aux)
 	    ether_sprintf(emac3->eaddr));
 
 	/* disable interrupts */
-	r = _reg_read_2(SPD_INTR_ENABLE_REG16);
+	r = spd_intr_enable_get();
 	r &= ~(SPD_INTR_RXEND | SPD_INTR_TXEND | SPD_INTR_RXDNV |
 	    SPD_INTR_EMAC3);
-	_reg_write_2(SPD_INTR_ENABLE_REG16, r);
+	spd_intr_enable_set(r);
 	emac3_intr_disable();
 
 	/* clear pending interrupts */
@@ -271,13 +271,13 @@ smap_intr(void *arg)
 	u_int16_t cause, disable, r;
 
 	cause = _reg_read_2(SPD_INTR_STATUS_REG16) &
-	    _reg_read_2(SPD_INTR_ENABLE_REG16);
+	    spd_intr_enable_get();
 
 	disable = cause & (SPD_INTR_RXDNV | SPD_INTR_TXDNV);
 	if (disable) {
-		r = _reg_read_2(SPD_INTR_ENABLE_REG16);
+		r = spd_intr_enable_get();
 		r &= ~disable;
-		_reg_write_2(SPD_INTR_ENABLE_REG16, r);
+		spd_intr_enable_set(r);
 
 		printf("%s: invalid descriptor. (%c%c)\n", DEVNAME,
 		    disable & SPD_INTR_RXDNV ? 'R' : '_',
@@ -400,10 +400,10 @@ smap_rxeof(void *arg)
 	}
 	sc->rx_done_index = i;
 
-	r16 = _reg_read_2(SPD_INTR_ENABLE_REG16);
+	r16 = spd_intr_enable_get();
 	if (((r16 & SPD_INTR_RXDNV) == 0) && cnt > 0) {
 		r16  |= SPD_INTR_RXDNV;
-		_reg_write_2(SPD_INTR_ENABLE_REG16, r16);
+		spd_intr_enable_set(r16);
 	}
 
 	FUNC_EXIT();
@@ -535,10 +535,10 @@ smap_start(struct ifnet *ifp)
 		_reg_write_1(SMAP_TXFIFO_FRAME_INC_REG8, 1);
 
 		emac3_tx_kick();
-		r16 = _reg_read_2(SPD_INTR_ENABLE_REG16);
+		r16 = spd_intr_enable_get();
 		if ((r16 & SPD_INTR_TXDNV) == 0) {
 			r16 |= SPD_INTR_TXDNV;
-			_reg_write_2(SPD_INTR_ENABLE_REG16, r16);
+			spd_intr_enable_set(r16);
 		}
 	}
  end:
@@ -577,10 +577,10 @@ smap_init(struct ifnet *ifp)
 	    SPD_INTR_RXDNV);
 	emac3_intr_clear();
 
-	r16 = _reg_read_2(SPD_INTR_ENABLE_REG16);
+	r16 = spd_intr_enable_get();
 	r16 |=  SPD_INTR_EMAC3 | SPD_INTR_RXEND | SPD_INTR_TXEND |
 	    SPD_INTR_RXDNV;
-	_reg_write_2(SPD_INTR_ENABLE_REG16, r16);
+	spd_intr_enable_set(r16);
 	emac3_intr_enable();
 
 	emac3_enable();

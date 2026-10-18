@@ -11,7 +11,7 @@ objcopy=${IOP_OBJCOPY:-$devroot/iop/bin/mipsel-none-elf-objcopy}
 irxgen=${IOP_IRXGEN:-$devroot/ps2sdk/bin/ps2-irxgen}
 iop="$src/sys/arch/playstation2/iop"
 mkdir -p "$out"
-for name in bootstrap smoke smoke_imports usb_irq usb_irq_imports; do
+for name in bootstrap smoke smoke_imports usb_irq usb_irq_imports dev9_irq dev9_irq_imports; do
     suffix=c
     case "$name" in *_imports) suffix=S ;; esac
     # The ROM relocator requires a fresh HI16/LO16 pair for every reference.
@@ -27,6 +27,8 @@ done
 "$irxgen" "$out/smoke.elf" "$out/smoke.irx"
 "$ld" -T "$iop/module.ld" --emit-relocs -o "$out/usb_irq.elf" "$out/usb_irq.o" "$out/usb_irq_imports.o"
 "$irxgen" "$out/usb_irq.elf" "$out/usb_irq.irx"
+"$ld" -T "$iop/module.ld" --emit-relocs -o "$out/dev9_irq.elf" "$out/dev9_irq.o" "$out/dev9_irq_imports.o"
+"$irxgen" "$out/dev9_irq.elf" "$out/dev9_irq.irx"
 # Some versions of the packager return success even on an invalid input.
 python3 - "$out" <<'PY'
 from pathlib import Path
@@ -63,10 +65,11 @@ assert {1, 0x70000080} <= types
 assert len(irx) <= 65536
 header = '/* Generated from the standalone BSD IOP sources. */\n'
 relay = (p / 'usb_irq.irx').read_bytes()
+dev9 = (p / 'dev9_irq.irx').read_bytes()
 assert relay[:7] == b'\x7fELF\x01\x01\x01'
 assert struct.unpack_from('<H', relay, 16)[0] == 0xff80
 assert 52 <= len(relay) <= 65536
-for module in (irx, relay):
+for module in (irx, relay, dev9):
     phoff = struct.unpack_from('<I', module, 28)[0]
     phentsize, phnum = struct.unpack_from('<HH', module, 42)
     types = set()
@@ -94,7 +97,7 @@ for module in (irx, relay):
             pending = kind == 5
         assert not pending, 'IRX dangling HI16'
 for data, name in ((raw, 'ps2_iop_bootstrap_image'), (irx, 'ps2_iop_smoke_image'),
-                   (relay, 'ps2_iop_usb_irq_image')):
+                   (relay, 'ps2_iop_usb_irq_image'), (dev9, 'ps2_iop_dev9_irq_image')):
     data += bytes(-len(data) % 4)
     words = struct.unpack('<%dI' % (len(data) // 4), data)
     header += 'static const uint32_t %s[] = {\n' % name

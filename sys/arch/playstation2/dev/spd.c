@@ -75,8 +75,12 @@ struct native_spd {
 	callout_t poll;
 	bool stopping;
 	unsigned completions;
+	unsigned irq_work, poll_work, polls;
+	bool in_poll;
 };
+static struct native_spd *native_sc;
 static void spd_native_poll(void *);
+static int spd_native_intr(void *);
 static bool spd_native_shutdown(device_t, int);
 CFATTACH_DECL_NEW(spd_ps2native, sizeof(struct native_spd),
 #else
@@ -137,8 +141,21 @@ spd_attach(device_t parent, device_t self, void *aux)
 #endif
 
 	/* disable all */
-	_reg_write_2(SPD_INTR_ENABLE_REG16, 0);
+	spd_intr_enable_set(0);
 	_reg_write_2(SPD_INTR_CLEAR_REG16, _reg_read_2(SPD_INTR_STATUS_REG16));
+
+#ifdef PS2_NOSBIOS
+	{
+		struct native_spd *nsc = device_private(self);
+		native_sc = nsc;
+		callout_init(&nsc->poll, 0);
+		callout_setfunc(&nsc->poll, spd_native_poll, nsc);
+		if (ps2sif_dev9_intr_establish(spd_native_intr, nsc) == 0)
+			aprint_normal_dev(self, "IOP IRQ13/SBUS relay active, 1 second watchdog\n");
+		else
+			aprint_normal_dev(self, "native SPD completion polling (no IRQ relay)\n");
+	}
+#endif
 
 	spa.spa_slot = SPD_HDD;
 	spa.spa_product_name = __spd_table[SPD_HDD].name;
@@ -150,29 +167,47 @@ spd_attach(device_t parent, device_t self, void *aux)
 
 #ifdef PS2_NOSBIOS
 	struct native_spd *sc = device_private(self);
-	callout_init(&sc->poll, 0);
-	callout_setfunc(&sc->poll, spd_native_poll, sc);
 	pmf_device_register1(self, NULL, NULL, spd_native_shutdown);
-	callout_schedule(&sc->poll, 1);
-	aprint_normal_dev(self, "native SPD completion polling (no SBIOS/SBUS IRQ)\n");
+	callout_schedule(&sc->poll, ps2sif_dev9_intr_active() ? hz : 1);
 #else
 	sbus_intr_establish(SBUS_IRQ_PCMCIA, spd_intr, 0);
 #endif
 }
 
 #ifdef PS2_NOSBIOS
+/* Called from the IOP relay (INTC ch1) at IPL_NET, or from the watchdog. */
+static int
+spd_native_intr(void *arg)
+{
+	struct native_spd *sc = arg;
+	if (sc->stopping)
+		return 0;
+	if (_reg_read_2(SPD_INTR_STATUS_REG16) & spd_intr_enable_get()) {
+		sc->completions++;
+		if (sc->in_poll)
+			sc->poll_work++;
+		else
+			sc->irq_work++;
+		(void)spd_intr(NULL);
+		return 1;
+	}
+	/* Nothing pending: still rearm what the IOP masked. */
+	spd_intr_enable_set(spd_intr_enable_get());
+	return 0;
+}
+
 static void
 spd_native_poll(void *arg)
 {
 	struct native_spd *sc = arg;
 	int s = splnet();
 	if (!sc->stopping) {
-		if (_reg_read_2(SPD_INTR_STATUS_REG16) &
-		    _reg_read_2(SPD_INTR_ENABLE_REG16)) {
-			sc->completions++;
-			(void)spd_intr(NULL);
-		}
-		callout_schedule(&sc->poll, 1);
+		sc->polls++;
+		sc->in_poll = true;
+		ps2sif_dev9_intr_poll();
+		(void)spd_native_intr(sc);
+		sc->in_poll = false;
+		callout_schedule(&sc->poll, ps2sif_dev9_intr_active() ? hz : 1);
 	}
 	splx(s);
 }
@@ -184,8 +219,10 @@ spd_native_shutdown(device_t self, int flags)
 	(void)flags;
 	sc->stopping = true;
 	callout_stop(&sc->poll);
-	_reg_write_2(SPD_INTR_ENABLE_REG16, 0);
-	aprint_normal_dev(self, "native SPD stop: completions=%u\n", sc->completions);
+	ps2sif_dev9_intr_stop();
+	spd_intr_enable_set(0);
+	aprint_normal_dev(self, "native SPD stop: completions=%u IRQ=%u poll=%u poll calls=%u\n",
+	    sc->completions, sc->irq_work, sc->poll_work, sc->polls);
 	return true;
 }
 #endif
@@ -206,7 +243,7 @@ spd_intr(void *arg)
 {
 	u_int16_t r;
 	
-	r = _reg_read_2(SPD_INTR_STATUS_REG16);
+	r = _reg_read_2(SPD_INTR_STATUS_REG16) & spd_intr_enable_get();
 
  	/* HDD (SCPH-20400) */
 	if ((r & SPD_INTR_HDD) != 0)
@@ -220,11 +257,26 @@ spd_intr(void *arg)
 			(*__spd_table[SPD_NIC].func)(__spd_table[SPD_NIC].arg);
 
 	/* reinstall */
-	r = _reg_read_2(SPD_INTR_ENABLE_REG16);
+	r = spd_intr_enable_get();
 	_reg_write_2(SPD_INTR_ENABLE_REG16, 0);
-	_reg_write_2(SPD_INTR_ENABLE_REG16, r);
+	spd_intr_enable_set(r);
 
 	return (1);
+}
+
+static volatile u_int16_t __spd_intr_enable_shadow;
+
+u_int16_t
+spd_intr_enable_get(void)
+{
+	return __spd_intr_enable_shadow;
+}
+
+void
+spd_intr_enable_set(u_int16_t v)
+{
+	__spd_intr_enable_shadow = v;
+	_reg_write_2(SPD_INTR_ENABLE_REG16, v);
 }
 
 void *

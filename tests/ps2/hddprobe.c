@@ -173,6 +173,40 @@ fstest(const char *dev, const char *dir, const char *tag)
 	return 0;
 }
 
+/* hddprobe file <path> <MiB> <w|v>: write or verify a pattern file (root FS). */
+static int
+filetest(const char *path, unsigned mib, int write_mode)
+{
+	uint32_t *buf = malloc(65536), *chk = malloc(65536);
+	int fd = open(path, write_mode ? O_WRONLY | O_CREAT | O_TRUNC : O_RDONLY, 0644);
+	double t0 = now();
+
+	if (fd < 0 || buf == NULL || chk == NULL) {
+		printf("HDD: FAIL open %s: %s\n", path, strerror(errno));
+		return 1;
+	}
+	for (uint64_t off = 0; off < ((uint64_t)mib << 20); off += 65536) {
+		fill(buf, 65536, off, 0xabc);
+		if (write_mode) {
+			if (write(fd, buf, 65536) != 65536) {
+				printf("HDD: FAIL write at %llu: %s\n",
+				    (unsigned long long)off, strerror(errno));
+				return 1;
+			}
+		} else if (read(fd, chk, 65536) != 65536 ||
+		    memcmp(buf, chk, 65536) != 0) {
+			printf("HDD: FAIL verify at %llu\n", (unsigned long long)off);
+			return 1;
+		}
+	}
+	if (write_mode)
+		fsync(fd);
+	close(fd);
+	printf("HDD: file %s %u MiB %s OK in %.1fs\n", path, mib,
+	    write_mode ? "written" : "verified", now() - t0);
+	return 0;
+}
+
 static int
 swaptest(const char *dev)
 {
@@ -198,6 +232,8 @@ main(int argc, char **argv)
 		return rawtest(argv[2], (unsigned)atoi(argv[3]));
 	if (argc == 5 && strcmp(argv[1], "fs") == 0)
 		return fstest(argv[2], argv[3], argv[4]);
+	if (argc == 5 && strcmp(argv[1], "file") == 0)
+		return filetest(argv[2], (unsigned)atoi(argv[3]), argv[4][0] == 'w');
 	if (argc == 3 && strcmp(argv[1], "swap") == 0)
 		return swaptest(argv[2]);
 	fputs("usage: hddprobe raw dev MiB | fs dev dir tag | swap dev\n", stderr);

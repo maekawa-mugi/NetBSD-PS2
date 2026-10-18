@@ -1,5 +1,5 @@
-# HDD bring-up: PS2NET plus native expansion-bay ATA (wdc/wd), PIO first.
+# HDD: PS2NET plus native expansion-bay ATA (wdc/wd) with IOP-assisted DMA.
 include "arch/playstation2/conf/PS2NET"
 wdc* at spd?
 atabus* at ata?
-wd* at atabus? drive ? flags 0x0ff0	# DMA/UDMA off until IOP DMA exists
+wd* at atabus? drive ?
