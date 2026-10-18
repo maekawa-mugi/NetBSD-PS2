@@ -36,7 +36,12 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <dev/wscons/wsconsio.h>
+/* Private copy of the font: wsfont also defines sony8x16 when wscons is in. */
+#define sony8x16 ps2_gsc_sony8x16
+#define sony8x16_data ps2_gsc_sony8x16_data
 #include <dev/wsfont/sony8x16.h>
+#undef sony8x16
+#undef sony8x16_data
 #include <mips/cpuregs.h>
 #include <machine/intr.h>
 #include <playstation2/ee/gsreg.h>
@@ -57,6 +62,8 @@ static unsigned col, row;
 
 void ps2_gs_init(void);
 void ps2_gs_putc(int);
+/* Set by ps2fb once wsdisplay owns the screen; early direct text stops. */
+void (*ps2_gs_putc_hook)(int);
 
 static bool
 send_qword(uint64_t lo, uint64_t hi)
@@ -114,7 +121,7 @@ glyph(unsigned c)
 	if (!transfer(col * 8, row * 16, 8, 16, 0, false) ||
 	    !send_qword(32 | 0x8000 | (2ULL << 58), 0))
 		return;
-	const uint8_t *bits = sony8x16_data + (c - 32) * 16;
+	const uint8_t *bits = ps2_gsc_sony8x16_data + (c - 32) * 16;
 	for (unsigned y = 0; y < 16; y++) {
 		uint32_t pixels[8];
 		for (unsigned x = 0; x < 8; x++)
@@ -141,6 +148,10 @@ newline(void)
 void
 ps2_gs_putc(int c)
 {
+	if (ps2_gs_putc_hook != NULL) {
+		(*ps2_gs_putc_hook)(c);
+		return;
+	}
 	if (!ready)
 		return;
 	/* Serialize packet fragments against interrupts on this UP machine. */

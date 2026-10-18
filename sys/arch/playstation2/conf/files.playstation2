@@ -67,6 +67,11 @@ device	gsfb: wsemuldisplaydev
 attach	gsfb at mainbus
 file	arch/playstation2/ee/gsfb.c			gsfb
 
+# GS as wsdisplay(4): shadow framebuffer + PIO upload, no SBIOS/DMA.
+device	ps2fb: wsemuldisplaydev, rasops32, vcons
+attach	ps2fb at mainbus
+file	arch/playstation2/ee/ps2fb.c			ps2fb
+
 define	sbus {}
 device	sbus: sbus
 attach	sbus at mainbus

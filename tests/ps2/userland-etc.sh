@@ -38,12 +38,18 @@ X
 cat >"$etc/ttys" <<'X'
 # name  getty                         type    status  comment
 console "/usr/libexec/getty std.9600" vt100   on secure
+ttyE0   "/usr/libexec/getty Pc"       vt100   on secure
+ttyE1   "/usr/libexec/getty Pc"       vt100   on secure
+ttyE2   "/usr/libexec/getty Pc"       vt100   on secure
+ttyE3   "/usr/libexec/getty Pc"       vt100   off secure
 X
 cat >"$etc/gettytab" <<'X'
 default:\
 	:np:im=\r\n%s/%m (%h) (%t)\r\n\r\n:sp#9600:
 std.9600|9600-baud:\
 	:sp#9600:
+Pc|Pc console:\
+	:np:im=\r\n%s/%m (%h) (%t)\r\n\r\n:sp#9600:
 X
 cat >"$etc/shells" <<'X'
 /bin/sh

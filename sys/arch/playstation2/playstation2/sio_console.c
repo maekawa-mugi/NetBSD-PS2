@@ -36,15 +36,21 @@ void ps2_gs_init(void);
 void ps2_gs_putc(int);
 #endif
 
+extern void (*ps2_gs_putc_hook)(int);
+
+/* screen: also draw on the GS. Kernel messages always do; the console tty's
+ * own output does only on the early direct console. Once wsdisplay owns the
+ * screen, ttyE0 shows its own getty/shell and mirroring would print it twice. */
 static void
-sio_tx(int c)
+sio_tx(int c, bool screen)
 {
 
 	while (SIO_ISR & 0x8000)
 		;
 	SIO_TX = c;
 #ifdef PS2_GSCONSOLE
-	ps2_gs_putc(c);
+	if (screen || ps2_gs_putc_hook == NULL)
+		ps2_gs_putc(c);
 #endif
 }
 
@@ -76,7 +82,7 @@ sio_putc(dev_t dev, int c)
 {
 	if (c == '\n')
 		sio_putc(dev, '\r');
-	sio_tx(c);
+	sio_tx(c, true);
 }
 
 static void
@@ -86,7 +92,7 @@ eesio_start(struct tty *tp)
 	if (!(tp->t_state & (TS_BUSY | TS_TTSTOP | TS_TIMEOUT))) {
 		tp->t_state |= TS_BUSY;
 		while (tp->t_outq.c_cc)
-			sio_tx(getc(&tp->t_outq));
+			sio_tx(getc(&tp->t_outq), false);
 		tp->t_state &= ~TS_BUSY;
 		ttypull(tp);
 	}

@@ -1,0 +1,24 @@
+# wscons console: GS wsdisplay(4) with USB keyboard (wskbd) and mouse (wsmouse).
+# The kernel console stays the EE SIO line; the screens are ttyE0..ttyE3.
+include "arch/playstation2/conf/PS2HDDROOT"
+
+options 	WSEMUL_VT100
+options 	FONT_SONY8x16
+options 	WS_KERNEL_FG=WSCOL_GREEN
+options 	WS_KERNEL_BG=WSCOL_BLACK
+options 	WSDISPLAY_DEFAULTSCREENS=4
+options 	WSDISPLAY_COMPAT_USL		# VT_* ioctls for X
+options 	WSDISPLAY_COMPAT_RAWKBD
+options 	WSDISPLAY_COMPAT_PCVT
+options 	WSDISPLAY_COMPAT_SYSCONS
+options 	WSDISPLAY_SCROLLSUPPORT
+options 	WSKBD_EVENT_AUTOREPEAT
+
+no ps2kbd*
+ps2fb*		at mainbus?
+wsdisplay*	at ps2fb? console ?
+ukbd*		at uhidev? reportid ?
+wskbd*		at ukbd? console ? mux 1
+ums*		at uhidev? reportid ?
+wsmouse*	at ums? mux 0
+pseudo-device	wsmux

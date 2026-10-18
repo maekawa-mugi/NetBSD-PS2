@@ -20,7 +20,7 @@ bin_progs="bin/cat bin/chmod bin/cp bin/csh bin/date bin/dd bin/df bin/echo bin/
     bin/sleep bin/stty bin/sync bin/test bin/rm bin/sh"
 sbin_progs="sbin/init sbin/mount sbin/umount sbin/mount_ffs sbin/mount_tmpfs sbin/fsck sbin/fsck_ffs
     sbin/newfs sbin/disklabel sbin/fdisk sbin/ifconfig sbin/route sbin/ping sbin/reboot sbin/shutdown
-    sbin/sysctl sbin/dmesg sbin/swapctl sbin/mknod sbin/chown sbin/rcorder sbin/ttyflags sbin/ldconfig sbin/dump"
+    sbin/sysctl sbin/dmesg sbin/swapctl sbin/mknod sbin/chown sbin/rcorder sbin/ttyflags sbin/wsconsctl sbin/ldconfig sbin/dump"
 usrbin_progs="usr.bin/basename usr.bin/cal usr.bin/cksum usr.bin/cmp usr.bin/cut usr.bin/diff
     usr.bin/dirname usr.bin/env usr.bin/false usr.bin/find usr.bin/fstat usr.bin/head
     usr.bin/hexdump usr.bin/id usr.bin/kdump usr.bin/ktrace usr.bin/ldd usr.bin/logger usr.bin/login
@@ -31,7 +31,7 @@ usrbin_progs="usr.bin/basename usr.bin/cal usr.bin/cksum usr.bin/cmp usr.bin/cut
     usr.bin/grep usr.bin/pkill external/bsd/cron/bin/crontab usr.bin/xinstall usr.bin/getconf external/historical/nawk/bin
     external/bsd/less/bin/less external/bsd/nvi/usr.bin/nvi"
 usrsbin_progs="usr.sbin/arp usr.sbin/dumpfs usr.sbin/pwd_mkdb usr.sbin/vipw usr.sbin/syslogd
-    usr.sbin/inetd external/bsd/cron/bin/cron"
+    usr.sbin/inetd external/bsd/cron/bin/cron usr.sbin/wsconscfg usr.sbin/wsfontload"
 libexec_progs="libexec/getty libexec/ld.elf_so"
 
 build_one()
@@ -96,6 +96,15 @@ fi
 for t in uc-st ldbl-check; do
     [ -f build/ps2/userland-test/$t ] && cp build/ps2/userland-test/$t "$tree/usr/bin/$t"
 done
+mkdir -p "$out/fbinc" && cp sys/arch/playstation2/include/ps2fbio.h "$out/fbinc/"
+# GS wsdisplay test (ps2fb): PS2FBIO_* come from the kernel's private header.
+"$user/cc" --sysroot="$user/dest" -O2 -Wall -Wextra -I"$out/fbinc" \
+    -c tests/ps2/fbtest.c -o "$out/fbtest.o" && \
+"$user/cc" --sysroot="$user/dest" -static -nostdlib -o "$tree/usr/bin/fbtest" \
+    "$user/dest/usr/lib/crt0.o" "$user/dest/usr/lib/crti.o" "$user/dest/usr/lib/crtbegin.o" "$out/fbtest.o" \
+    -Wl,--start-group "$user/dest/usr/lib/libc.a" "$user/dest/usr/lib/libgcc.a" -Wl,--end-group \
+    "$user/dest/usr/lib/crtend.o" "$user/dest/usr/lib/crtn.o" && \
+    "$tools/mipsel--netbsd-strip" "$tree/usr/bin/fbtest"
 # test binary [ is the same program as test
 [ -f "$tree/bin/test" ] && ln -f "$tree/bin/test" "$tree/bin/["
 [ -f "$tree/usr/bin/stat" ] && ln -f "$tree/usr/bin/stat" "$tree/usr/bin/readlink"
@@ -129,6 +138,20 @@ spec="$out/root.mtree"
 ./dev/rwd0c type=char mode=0640 device=native,10,2
 ./dev/wd1b type=block mode=0640 device=native,1,17
 ./dev/rwd1b type=char mode=0640 device=native,10,17
+./dev/ttyE0 type=char mode=0600 device=native,27,0
+./dev/ttyE1 type=char mode=0600 device=native,27,1
+./dev/ttyE2 type=char mode=0600 device=native,27,2
+./dev/ttyE3 type=char mode=0600 device=native,27,3
+./dev/ttyEstat type=char mode=0644 device=native,27,254
+./dev/ttyEcfg type=char mode=0600 device=native,27,255
+./dev/wskbd0 type=char mode=0600 device=native,28,0
+./dev/wsmouse0 type=char mode=0600 device=native,29,0
+./dev/wsmux0 type=char mode=0600 device=native,30,0
+./dev/wsmux1 type=char mode=0600 device=native,30,1
+./dev/wsmuxctl0 type=char mode=0600 device=native,30,128
+./dev/wsmuxctl1 type=char mode=0600 device=native,30,129
+./dev/wsmouse type=char mode=0600 device=native,30,0
+./dev/wskbd type=char mode=0600 device=native,30,1
 EOF
 } >"$spec"
 rm -f "$spec.body"
