@@ -31,7 +31,7 @@ SRCS+=	membar_ops.S
 .if defined(LIB) && (${LIB} == "c" || ${LIB} == "pthread")
 
 .if ${MACHINE} == "playstation2"
-SRCS+= atomic_cas_r5900.S atomic_init_r5900.c atomic_cas_by_cas32.c
+SRCS+= atomic_cas_r5900.S atomic_init_r5900.c atomic_cas_by_cas32.c atomic_cas_64_cas.c
 .elif !${MACHINE_MIPS64}
 SRCS+=	atomic_init_testset.c atomic_cas_up.S
 .else

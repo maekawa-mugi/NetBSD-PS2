@@ -212,3 +212,30 @@
 #define __truncdfsf2			__aeabi_d2f
 
 #endif /* __ARM_EABI__ */
+
+/*
+ * Soft-float little-endian MIPS (n32/n64): GCC returns TFmode in $2/$4, while
+ * a C function returning struct float128 uses $2/$3.  Keep the C
+ * implementations under private names and export __*tf* through the
+ * long double shims in tf_mips_abi.c.
+ */
+#if defined(__mips__) && defined(__MIPSEL__) && \
+    (defined(__mips_n32) || defined(__mips_n64))
+#define MIPS_TF_ABI_SHIM
+#undef float128_add
+#undef float128_sub
+#undef float128_mul
+#undef float128_div
+#undef int32_to_float128
+#undef int64_to_float128
+#undef float32_to_float128
+#undef float64_to_float128
+#define float128_add			_softfloat128_add
+#define float128_sub			_softfloat128_sub
+#define float128_mul			_softfloat128_mul
+#define float128_div			_softfloat128_div
+#define int32_to_float128		_softfloat128_from_int32
+#define int64_to_float128		_softfloat128_from_int64
+#define float32_to_float128		_softfloat128_from_float32
+#define float64_to_float128		_softfloat128_from_float64
+#endif

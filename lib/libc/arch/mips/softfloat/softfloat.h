@@ -62,9 +62,19 @@ typedef struct {
 } floatx80;
 #endif
 #ifdef FLOAT128
+/*
+ * The soft-float ABI returns/passes TFmode in a register pair whose first
+ * member holds the low-order doubleword on little-endian CPUs.
+ */
+#if defined(__MIPSEL__) && defined(SOFTFLOAT_FOR_GCC)
+typedef struct {
+    unsigned long long low, high;
+} float128;
+#else
 typedef struct {
     unsigned long long high, low;
 } float128;
+#endif
 #endif
 
 /*

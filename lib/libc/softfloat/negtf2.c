@@ -15,6 +15,10 @@ __RCSID("$NetBSD: negtf2.c,v 1.1 2011/01/17 10:08:35 matt Exp $");
 
 #ifdef FLOAT128
 
+#ifdef MIPS_TF_ABI_SHIM
+#define __negtf2 _softfloat128_neg
+#endif
+
 float128 __negtf2(float128);
 
 float128

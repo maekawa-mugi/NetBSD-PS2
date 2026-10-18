@@ -3,7 +3,8 @@
 set -eu
 cd "$(dirname "$0")"
 src=$(pwd)
-out="$src/build/ps2/user-n32"
+pic=${PIC:-no}
+if [ "$pic" = yes ]; then out="$src/build/ps2/user-n32-pic"; else out="$src/build/ps2/user-n32"; fi
 jobs=${JOBS:-16}
 mkdir -p "$out/dest" "$out/obj" "$out/logs"
 cat >"$out/cc" <<EOF
@@ -25,15 +26,16 @@ umake()
         "CC=$out/cc" \
         "LD=$src/build/ps2/tools/bin/mipsel--netbsd-ld -m elf32ltsmipn32" \
         'CPUFLAGS=-march=r5900 -mabi=n32 -msoft-float -mno-llsc -Wl,-m,elf32ltsmipn32' \
-        MKSOFTFLOAT=yes MKCOMPAT=no MKPIC=no MKPIE=no MKPROFILE=no \
+        MKSOFTFLOAT=yes MKCOMPAT=no MKPIC=$pic MKPIE=no MKPROFILE=no \
         MKDEBUG=no MKDEBUGLIB=no MKLINT=no MKMAN=no MKHTML=no MKDOC=no \
-        MKDTRACE=no MKCXX=no MKSSP=no MKFORTIFY=no MKRELRO=no "$@"
+        MKDTRACE=no MKCXX=no MKSSP=no MKFORTIFY=no MKRELRO=no MKRUMP=no \
+        USE_PAM=no USE_KERBEROS=no MKKERBEROS=no MKYP=no MKINET6=no "$@"
 }
 
 case ${1:-headers} in
 all)
     for phase in toolchain headers libs init; do
-        sh "$src/build-ps2-user.sh" "$phase"
+        PIC=$pic sh "$src/build-ps2-user.sh" "$phase"
     done
     ;;
 toolchain)
@@ -58,6 +60,19 @@ libs)
         umake -C "$src/$subdir" cleandir >>"$out/logs/$name.log" 2>&1
         umake -C "$src/$subdir" dependall >>"$out/logs/$name.log" 2>&1
         umake -C "$src/$subdir" MKUPDATE=no install >>"$out/logs/$name.log" 2>&1
+    done
+    ;;
+libs2)
+    # Extra static libraries used by the wider command set.
+    for subdir in ${LIBS2:-lib/libm lib/libutil lib/libcrypt lib/libkvm lib/libterminfo lib/libz lib/libcurses lib/libedit lib/libpthread lib/libpam lib/libexecinfo lib/libprop lib/libarch lib/libossaudio}; do
+        name=$(printf '%s' "$subdir" | tr / _)
+        umake -C "$src/$subdir" obj >"$out/logs/$name.log" 2>&1
+        if umake -C "$src/$subdir" dependall >>"$out/logs/$name.log" 2>&1 &&
+            umake -C "$src/$subdir" MKUPDATE=no install >>"$out/logs/$name.log" 2>&1; then
+            echo "OK $subdir"
+        else
+            echo "FAIL $subdir"
+        fi
     done
     ;;
 make)

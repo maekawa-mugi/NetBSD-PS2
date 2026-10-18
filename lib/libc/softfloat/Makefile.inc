@@ -29,6 +29,9 @@ SRCS.softfloat+=eqsf2.c nesf2.c gtsf2.c gesf2.c ltsf2.c lesf2.c negsf2.c \
 .endif
 
 SRCS+=		flt_rounds.c
+.if !empty(LIBC_MACHINE_ARCH:Mmips64el)
+SRCS.softfloat+=tf_mips_abi.c
+.endif
 SRCS+=		${SRCS.softfloat}
 
 # XXX

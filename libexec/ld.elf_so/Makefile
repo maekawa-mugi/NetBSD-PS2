@@ -156,7 +156,7 @@ LDADD+=		-lc
 DPADD+=		${CLIBOBJ}/libc.a
 .endif
 
-.if ${MACHINE_CPU} == "hppa" || ${MACHINE_CPU} == "sh3"
+.if ${MACHINE_CPU} == "hppa" || ${MACHINE_CPU} == "sh3" || ${MACHINE} == "playstation2"
 # for $$divU, $$remU etc. (millicode)
 LDADD+=		-lgcc
 DPADD+=		${LIBGCC}
