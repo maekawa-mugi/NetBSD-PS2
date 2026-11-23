@@ -9,7 +9,9 @@ LIB=		pixman-1
 # playstation2 builds only maekawa-mugi/pixman-retro (R5900 MMI backend)
 # in place of the xsrc pixman; headers/config still come from xsrc/include.
 .if ${MACHINE} == "playstation2"
-PIXMAN_RETRO?=	/home/mugi/pixman-retro-src
+.if !defined(PIXMAN_RETRO)
+.error "PIXMAN_RETRO must point at a pixman-retro checkout (build-ps2-x.sh sets it)"
+.endif
 X11SRCDIR.pixman:=	${PIXMAN_RETRO}
 .endif
 
