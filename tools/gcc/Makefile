@@ -51,6 +51,12 @@ COMMON_CONFIGURE_ARGS+=	--with-arch=${GCC_CONFIG_ARCH.${MACHINE_ARCH}}
 COMMON_CONFIGURE_ARGS+=	--with-tune=${GCC_CONFIG_TUNE.${MACHINE_ARCH}}
 .endif
 
+# The PlayStation 2 Emotion Engine (R5900) has no LL/SC; default the
+# mips64el (n32) toolchain to it so kernel, userland and X need no extra flags.
+.if ${MACHINE} == "playstation2"
+COMMON_CONFIGURE_ARGS+=	--with-arch=r5900 --with-llsc=no
+.endif
+
 # Too many CPUs have one or both of these bugs, the common code should
 # default to safety.
 .if ${MACHINE_CPU} == "aarch64"

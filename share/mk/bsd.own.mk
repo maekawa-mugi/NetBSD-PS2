@@ -1161,6 +1161,16 @@ MK${var:S/^NO//}:=	no
 #
 
 #
+# playstation2 is mips64el with an n32-only R5900 userland: no n64/o32
+# compat libraries and no kernel modules.
+#
+.if ${MACHINE} == "playstation2"
+MKCOMPAT:=	no
+MKCOMPATMODULES:=	no
+MKKMOD:=	no		# the kernel is not MODULAR
+.endif
+
+#
 # aarch64eb is not yet supported for MKCOMPAT.
 #
 .if \
@@ -1666,6 +1676,7 @@ ${var}?=	${${var}.${MACHINE_ARCH}:U${${var}.${MACHINE}:Uno}}
     ${MACHINE} == "netwinder"	|| \
     ${MACHINE} == "newsmips"	|| \
     ${MACHINE} == "ofppc"	|| \
+    ${MACHINE} == "playstation2" || \
     ${MACHINE} == "pmax"	|| \
     ${MACHINE} == "prep"	|| \
     ${MACHINE} == "sgimips"	|| \
@@ -1960,6 +1971,11 @@ HAVE_XORG_EGL?=		no
 	font-screen-cyrillic font-winitzki-cyrillic font-xfree86-type1
 X11SRCDIR.${_dir}?=		${X11SRCDIRMIT}/${_dir}/dist
 .endfor
+
+# playstation2 builds pixman from the in-tree pixman-retro (R5900 MMI).
+.if ${MACHINE} == "playstation2"
+X11SRCDIR.pixman=	${NETBSDSRCDIR}/external/mit/pixman-retro/dist
+.endif
 
 # X11SRCDIR.Mesa points to the currently used Mesa sources
 X11SRCDIR.Mesa?=		${X11SRCDIRMIT}/${EXTERNAL_MESALIB_DIR}/dist

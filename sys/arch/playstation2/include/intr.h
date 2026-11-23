@@ -31,9 +31,9 @@
 
 #ifndef _PLAYSTATION2_INTR_H_
 #define _PLAYSTATION2_INTR_H_
-#ifdef _KERNEL
+#include <mips/intr.h>	/* ipl_cookie_t etc. also for _KMEMUSER (crash(8)) */
 
-#include <mips/intr.h>
+#ifdef _KERNEL
 
 /* R5900 EI/DI instruction */
 int _intr_suspend(void);

@@ -43,7 +43,7 @@ LIBC_MACHINE_CPU?=${MACHINE_CPU}
 SUBDIR+=	libc_vfp
 .endif
 .endif
-.if ${MACHINE_MIPS64}
+.if ${MACHINE_MIPS64} && ${MACHINE} != "playstation2"	# EE FPU: single only
 SUBDIR+=	libc_fp
 .endif
 .if (${MKBLUETOOTH} != "no")

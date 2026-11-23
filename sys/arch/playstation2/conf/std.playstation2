@@ -2,7 +2,7 @@
 
 machine playstation2 mips
 include		"conf/std"	# MI standard options
-makeoptions	MACHINE_ARCH="mipsel"
+makeoptions	MACHINE_ARCH="mips64el"
 
 options 	MIPS3
 options 	MIPS3_5900

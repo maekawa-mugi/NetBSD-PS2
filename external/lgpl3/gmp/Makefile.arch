@@ -1,3 +1,8 @@
 #	$NetBSD: Makefile.arch,v 1.3 2020/09/02 15:15:30 jakllsch Exp $
 
+# The R5900 (playstation2) has no DMULT/DDIV: use mips64el with the
+# generic C multiply routines instead of mpn/mips64/hilo.
+.if ${MACHINE} == "playstation2"
+GMP_MACHINE_ARCH?=	mips64el-r5900
+.endif
 GMP_MACHINE_ARCH?=	${MACHINE_ARCH:C/e?arm(v[4567])?(hf)?/arm/:C/aarch64eb/aarch64/}
