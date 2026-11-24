@@ -5,9 +5,7 @@
 .include "Makefile.common"
 
 SUBDIR=		doc include .WAIT
-.if ${MACHINE} != "playstation2"
 SUBDIR+=	glx
-.endif
 SUBDIR+=	dix fb mi Xext miext os randr render 
 SUBDIR+=	present pseudoramiX
 SUBDIR+=	Xi xkb xkbstubs dbe record xfixes

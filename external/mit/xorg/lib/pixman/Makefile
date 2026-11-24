@@ -6,13 +6,11 @@ NOLINT=	1	# defined
 
 LIB=		pixman-1
 
-# playstation2 builds only maekawa-mugi/pixman-retro (R5900 MMI backend)
-# in place of the xsrc pixman; headers/config still come from xsrc/include.
-.if ${MACHINE} == "playstation2"
-.if !defined(PIXMAN_RETRO)
-.error "PIXMAN_RETRO must point at a pixman-retro checkout (build-ps2-x.sh sets it)"
-.endif
-X11SRCDIR.pixman:=	${PIXMAN_RETRO}
+# playstation2: X11SRCDIR.pixman is external/mit/pixman-retro/dist, a git
+# submodule (R5900 MMI backend, see bsd.own.mk); headers/config still come
+# from xsrc.
+.if ${MACHINE} == "playstation2" && !exists(${X11SRCDIR.pixman}/pixman/pixman.c)
+.error "${X11SRCDIR.pixman} is empty: run 'git submodule update --init'"
 .endif
 
 DIST=	${X11SRCDIR.pixman}/pixman

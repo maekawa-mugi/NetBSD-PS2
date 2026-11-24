@@ -1,0 +1,3 @@
+[submodule "external/mit/pixman-retro/dist"]
+	path = external/mit/pixman-retro/dist
+	url = https://github.com/maekawa-mugi/pixman-retro.git

@@ -1,0 +1,14 @@
+pixman-retro: pixman with an R5900 (PlayStation 2 Emotion Engine) 128-bit MMI
+backend, used for MACHINE=playstation2 in place of xsrc's pixman.
+
+dist/ is a git submodule of https://github.com/maekawa-mugi/pixman-retro
+(MIT licence).  Clone this tree with --recurse-submodules, or run
+
+	git submodule update --init
+
+before building X11 for playstation2.  Other ports do not use it.
+
+external/mit/xorg/lib/pixman builds from dist/pixman when MACHINE is
+playstation2 (X11SRCDIR.pixman in share/mk/bsd.own.mk); headers and
+pixman-1.pc still come from xsrc's external/mit/pixman/include.
+To update, check out a newer commit in dist/ and commit the submodule.

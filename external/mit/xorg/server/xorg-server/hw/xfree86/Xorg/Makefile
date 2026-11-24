@@ -59,9 +59,7 @@ LDADD+=	${LDADD.miext/sync}
 LDADD+=	${LDADD.Xi}
 LDADD+=	${LDADD.xkb}
 LDADD+=	${LDADD.os}
-.if ${MACHINE} != "playstation2"
 LDADD+=	${LDADD.glx}
-.endif
 LDADD+=	${LDADD.present}
 LDADD+=	${LDADD.hw/xfree86/dri}
 LDADD+=	${LDADD.hw/xfree86/dri2}
@@ -81,7 +79,7 @@ LDADD+=	-lalpha
 DPADD+=	${LIBALPHA}
 .endif
 
-LDADD+=	-lm -lXv -lxshmfence
+LDADD+=	-lm -lGL -lXv -lxshmfence
 .if ${HAVE_XORG_GLAMOR} != "no"  
 LDADD+=	-lepoxy
 .endif
@@ -111,6 +109,7 @@ DPADD+=	\
 	${DPADD.xkb} \
 	${DPADD.composite} \
 	${DPADD.os} \
+	${DPADD.glx} \
 	${DPADD.present} \
 	${DPADD.hw/xfree86/dri} \
 	${DPADD.hw/xfree86/dri2} \
@@ -128,13 +127,10 @@ DPADD+=	\
 	${LIBCWRAPPER} \
 	${LIBXFONT2} ${LIBFREETYPE} ${LIBXAU} ${LIBFONTENC} \
 	${LIBPIXMAN1} ${LIBXDMCP} ${LIBZ} ${LIBM} ${LIBPCIACCESS} \
-	${LIBXV} ${LIBXSHMFENCE} ${LIBXCVT}
+	${LIBGL} ${LIBXV} ${LIBXSHMFENCE} ${LIBXCVT}
 
-# playstation2: no OpenSSL; SHA1 comes from libc.
-.if ${MACHINE} != "playstation2"
 LDADD+=	-lcrypto
 DPADD+=	${LIBCRYPTO}
-.endif
 
 SYMLINKS=	${X11BINDIR}/Xorg ${X11BINDIR}/X
 

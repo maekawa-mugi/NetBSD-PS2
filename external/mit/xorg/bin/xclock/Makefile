@@ -14,6 +14,7 @@ CPPFLAGS+=-I${DESTDIR}${X11INCDIR}/freetype2/freetype
 COPTS.Clock.c+=-Wno-error=stack-protector
 
 APPDEFS=XClock XClock-color
+APPDEFS+=XClock-ampm XClock-grandfather
 
 
 LDADD+=	-lXft -lfontconfig -lfreetype -lexpat -lXrender
