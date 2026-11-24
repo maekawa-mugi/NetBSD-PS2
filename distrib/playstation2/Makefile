@@ -1,24 +1,13 @@
 #	$NetBSD: Makefile,v 1.17 2025/09/23 20:12:08 rillig Exp $
 
-.include <bsd.own.mk>
-.include "${NETBSDSRCDIR}/distrib/common/Makefile.distrib"
+# The kernel is loaded as a PS2 ELF (no SBIOS) and mounts its root from the
+# DEV9 HDD (wd0a), so there is no installer: the live image built by
+# "build.sh -m playstation2 release live-image" is the distribution.
 
-MINIROOTDIR!=	cd ${.CURDIR}/../miniroot && ${PRINTOBJDIR}
-MINIROOT=	${MINIROOTDIR}/miniroot.fs
-
-MDSETTARGETS=		RAMDISK ${MINIROOT} netbsd
-
-# ???
-# MDSET_RELEASEDIR=	installation
-
-.include "${DISTRIBDIR}/common/Makefile.mdset"
-
-.include <bsd.prog.mk>
-
-SUBDIR=		cdroms
+SUBDIR=		liveimage
 TARGETS+=	release
 
-iso_image: .MAKE
-	${MAKEDIRTARGET} cdroms iso_image
+live_image: .MAKE
+	${MAKEDIRTARGET} liveimage live_image
 
 .include <bsd.subdir.mk>

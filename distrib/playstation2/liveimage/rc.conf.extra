@@ -1,0 +1,7 @@
+# NetBSD/playstation2 live image: DHCP on the DEV9 Ethernet (smap0).
+dhcpcd=YES
+dhcpcd_flags="-qM smap0"
+# Skip jobs that take minutes on the 294 MHz EE.
+postfix=NO
+makemandb=NO
+fccache=NO

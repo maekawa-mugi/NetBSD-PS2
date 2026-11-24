@@ -3,8 +3,11 @@
 #
 # name	getty				type	status		comments
 
-console	"/usr/libexec/getty std.9600"	vt100	off secure
+console	"/usr/libexec/getty std.9600"	vt100	on secure
 constty	"/usr/libexec/getty std.9600"	vt100	off secure
 
-# Workstation console (framebuffer) ttys
-ttyE0	"/usr/libexec/getty std.9600"	vt100	on secure
+# Workstation console (GS framebuffer) ttys
+ttyE0	"/usr/libexec/getty Pc"		wsvt25	on secure
+ttyE1	"/usr/libexec/getty Pc"		wsvt25	on secure
+ttyE2	"/usr/libexec/getty Pc"		wsvt25	on secure
+ttyE3	"/usr/libexec/getty Pc"		wsvt25	off secure

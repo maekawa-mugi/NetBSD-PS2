@@ -1,0 +1,2 @@
+# $NetBSD$
+./etc/X11/xorg.conf	type=file mode=0644 uname=root gname=wheel

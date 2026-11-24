@@ -2,6 +2,8 @@
 # The kernel console stays the EE SIO line; the screens are ttyE0..ttyE3.
 include "arch/playstation2/conf/PS2HDDROOT"
 
+file-system	TMPFS		# /var/shm (fstab) and /tmp on a full root
+
 options 	WSEMUL_VT100
 options 	FONT_SONY8x16
 options 	WS_KERNEL_FG=WSCOL_GREEN

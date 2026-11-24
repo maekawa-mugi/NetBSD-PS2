@@ -245,6 +245,7 @@ static const struct disklabel_params {
 	{ "hppa",	0, 1, 16, 2, 0,   0, BIG_ENDIAN },	/* hppa */
 	{ "ibmnws",	0, 1, 16, 2, 0,   0, BIG_ENDIAN },	/* powerpc */
 	{ "ofppc",	0, 1, 16, 2, 0,   0, BIG_ENDIAN },	/* powerpc */
+	{ "playstation2",0, 1, 16, 2, 0,   0, LITTLE_ENDIAN },	/* mips */
 	{ "rs6000",	0, 1, 16, 2, 0,   0, BIG_ENDIAN },	/* powerpc */
 	{ "sandpoint",	0, 1, 16, 2, 0,   0, BIG_ENDIAN },	/* powerpc */
 	{ "sgimips",	0, 1, 16, 2, 0,   0, BIG_ENDIAN },	/* mips */
