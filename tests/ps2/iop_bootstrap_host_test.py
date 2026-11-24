@@ -164,8 +164,7 @@ with tempfile.TemporaryDirectory(prefix="ps2-iop-bootstrap-") as temp:
     d = Path(temp)
     (d / "rpc.c").write_text(code)
     subprocess.run(["cc", "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
-                    "-Wno-unused-const-variable", "-I", str(iop), "-I",
-                    str(root / "build/ps2/native-iop"), str(d / "rpc.c"),
+                    "-Wno-unused-const-variable", "-I", str(iop), str(d / "rpc.c"),
                     "-o", str(d / "rpc")], check=True)
     subprocess.run([str(d / "rpc")], check=True)
     (d / "abi.c").write_text(abi)

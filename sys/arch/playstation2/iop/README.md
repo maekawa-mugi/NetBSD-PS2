@@ -12,9 +12,16 @@ Build the experimental USB shell with:
 KERNEL=PS2IOPBOOT sh build-ps2-shell.sh
 ```
 
-`build-ps2-iop.sh` supports `PS2DEV`, `IOP_CC`, `IOP_LD`, `IOP_OBJCOPY`, and
-`IOP_IRXGEN` overrides. Generated images remain under `build/ps2/native-iop`.
-The normal PS2USB configuration does not require these additional tools.
+The kernel build uses the committed `ps2_iop_images.h`, so `build.sh` needs no
+IOP toolchain. After changing the IOP sources, regenerate it with
+`PS2DEV=/path/to/ps2dev sh mkimages.sh` (overrides: `IOP_CC`, `IOP_LD`,
+`IOP_OBJCOPY`, `IOP_IRXGEN`) and commit the result.
+
+`ps2_iop_images.h` holds only code and data built from these BSD-2-Clause
+sources. The modules are linked with `ld` alone (no libgcc), and
+`ps2-irxgen` only repackages the ELF: the `.text`, `.rodata`, `.data` and
+`.iopmod` contents of each IRX are byte-identical to the linked ELF, whose
+`.iopmod` comes from `module.ld`.
 
 The tested ROM LOADFILE dispatcher accepts operations below 6, so it cannot
 provide the usual buffer-loading operation 6. The EE instead finds unique
