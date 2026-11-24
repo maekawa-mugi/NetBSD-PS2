@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Record production cache walker operations; does not emulate cache hardware.
 
-Run in WSL: python3 tests/ps2/cache_r5900_host_test.py
+Run: python3 tests/ps2/cache_r5900_host_test.py
 """
 from pathlib import Path
 import re

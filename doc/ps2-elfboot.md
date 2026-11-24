@@ -1,5 +1,10 @@
 # PS2 direct ELF boot test (2026-10-16)
 
+> This is the chronological bring-up log. Build commands and script names
+> below are historical: the port now builds with `build.sh -m playstation2`
+> (MACHINE_ARCH mips64el); see `doc/ps2-build.md`. The RAM-root test
+> builders moved to `tests/ps2/build-*-root.sh`.
+
 Current development target: SBIOS/RTE-free `PS2USB`, static n32 RAM-root
 shell, direct VGA GS output and native USB keyboard input (plus EE SIO),
 with **128 MiB EE RAM**.
@@ -8,12 +13,11 @@ ExtraMemory=true. The stock deterministic agent profile forces 32 MiB and
 is unsuitable for current 128 MiB images. Earlier sections retain the
 chronological bring-up results; the final sections describe current tests.
 
-## Build in WSL
+## Build
 
-Run `sh build-ps2.sh` from the source root. The script uses NetBSD's own
-cross tools, host GCC/G++, and `MAKECONF=/dev/null` to avoid unrelated host
-configuration. Output: `build/ps2/netbsd-ELFBOOT.elf`. Logs and objects are
-under `build/ps2/`.
+At the time, `build-ps2.sh` ran NetBSD's own cross tools with host GCC/G++
+and `MAKECONF=/dev/null`, writing `build/ps2/netbsd-ELFBOOT.elf`. See
+`doc/ps2-build.md` for the current build.
 
 The kernel uses ELF32 little-endian n32, with R5900/MIPS III flags. The
 NetBSD linker needs its n32 emulation enabled; the playstation2 tools build
@@ -198,7 +202,7 @@ but have not been exercised by an attached DMA device in this configuration.
 
 ## Embedded FFS root and static n32 init: userspace reached
 
-Build inside WSL with:
+Build with:
 
 ```sh
 JOBS=16 sh build-ps2-root.sh
@@ -362,7 +366,7 @@ This is a static C program using the normal libc startup, TLS, allocator,
 stdio, signal trampoline, and syscall wrappers, rather than hand-written
 syscalls alone.
 
-Reproduce inside WSL with:
+Reproduce with:
 
 ```sh
 JOBS=16 sh build-ps2-user.sh all
@@ -476,7 +480,7 @@ An optional `PS2.local` is included after these overrides. An existing
 `GENERIC.local`, if present, would be inherited before them; neither local
 file was present in this verification.
 
-Build inside WSL:
+Build:
 
 ```sh
 JOBS=16 KERNEL=PS2 sh build-ps2.sh
@@ -604,7 +608,7 @@ real hardware. No PCSX2 source/settings changes were required.
 ## SBIOS/RTE-free interactive RAM root (2026-10-16)
 
 The next development profile is `PS2SHELL`, derived from PS2ELF, with a
-12 MiB embedded FFS root. Build it inside WSL with:
+12 MiB embedded FFS root. Build it with:
 
 ```sh
 # Once, or after compiler/ABI changes:
@@ -1400,9 +1404,8 @@ manual key input on this version and real hardware remain untested. Keeping
 the tick poll means this does not yet measure latency/load improvement or
 prove full USB operation with only IRQ completions.
 
-New artifacts live under
-`C:\Users\mugi\.codex\visualizations\2026\10\17\01a14a8b-f378-7201-b894-5e3944844959`,
-with `run59-usb-irq-final/serial.ee-sio.bin` holding final evidence.
+The run artifacts (kept outside the tree) include
+`run59-usb-irq-final/serial.ee-sio.bin` as the final evidence.
 SHA-256 of the final build:
 
 ```text

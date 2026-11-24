@@ -1,23 +1,17 @@
 #!/bin/sh
-# Supplemental network test image; does not add test policy to the shell root.
+# Network regress root: the JIT root plus netprobe, embedded in a PS2NET
+# kernel (pair with tests/ps2/net_echo_host.py on the host).
 set -eu
 cd "$(dirname "$0")/../.."
+. tests/ps2/env.sh
 kernel=${KERNEL:-PS2NET}
 KERNEL="$kernel" sh tests/ps2/build-jit-regress.sh
-src=$(pwd)
-u="$src/build/ps2/user-n32"
-t="$src/build/ps2/tools/bin"
-o="$src/build/ps2/root-net"
-mkdir -p "$o"
-cp -a "$src/build/ps2/root-jit128/tree" "$o/"
-"$u/cc" --sysroot="$u/dest" -O2 -Wall -Wextra -Werror -c tests/ps2/netprobe.c -o "$o/netprobe.o"
-"$u/cc" --sysroot="$u/dest" -static -nostdlib -o "$o/tree/bin/netprobe" \
-    "$u/dest/usr/lib/crt0.o" "$u/dest/usr/lib/crti.o" "$u/dest/usr/lib/crtbegin.o" \
-    "$o/netprobe.o" -Wl,--start-group "$u/dest/usr/lib/libc.a" "$u/dest/usr/lib/libgcc.a" \
-    -Wl,--end-group "$u/dest/usr/lib/crtend.o" "$u/dest/usr/lib/crtn.o"
-"$t/mipsel--netbsd-strip" "$o/tree/bin/netprobe"
-cp "$src/build/ps2/root-jit128/root.mtree" "$o/root.mtree"
-printf './bin/netprobe type=file mode=0555\n' >>"$o/root.mtree"
-"$t/nbmakefs" -B le -t ffs -o version=1 -s 16m -F "$o/root.mtree" "$o/root.fs" "$o/tree"
-cp "$src/build/ps2/obj/sys/arch/playstation2/compile/$kernel/netbsd" "$src/build/ps2/netbsd-$kernel-net.elf"
-"$t/mipsel--netbsd-mdsetimage" -v "$src/build/ps2/netbsd-$kernel-net.elf" "$o/root.fs"
+jit="$TOUT/root-jit128"
+out="$TOUT/root-net"
+rm -rf "$out"; mkdir -p "$out"
+cp -a "$jit/tree" "$out/"
+ccstatic "$out/tree/bin/netprobe" tests/ps2/netprobe.c
+cp "$jit/root.mtree" "$out/root.mtree"
+printf './bin/netprobe type=file mode=0555\n' >>"$out/root.mtree"
+"$MAKEFS" -B le -t ffs -o version=1 -s 16m -F "$out/root.mtree" "$out/root.fs" "$out/tree"
+embed_root "$kernel" "$out/root.fs" "$kernel-net"
