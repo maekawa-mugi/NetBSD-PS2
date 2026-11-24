@@ -1,0 +1,18 @@
+#	$NetBSD$
+#
+# PS2WSCONS for 32 MiB of EE RAM (a retail console, or PCSX2 without its
+# extra-memory option).  PS2WSCONS itself assumes 128 MiB.
+#
+# The bring-up configurations PS2WSCONS includes carry a 16 MiB embedded
+# RAM-disk root (PS2NET); root is on wd0a here, so leave it out instead of
+# spending half of the RAM on it.
+
+include "arch/playstation2/conf/PS2WSCONS"
+
+no options	PS2_MEMSIZE
+options 	PS2_MEMSIZE=32
+
+no options	MEMORY_DISK_ROOT_SIZE
+no options	MEMORY_DISK_SERVER
+no options	MEMORY_DISK_HOOKS
+no pseudo-device md

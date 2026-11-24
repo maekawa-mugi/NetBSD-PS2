@@ -40,13 +40,18 @@ Add `-x -X /path/to/xsrc` to all three for X11. Results under
 
 | Path | Contents |
 |---|---|
-| `playstation2/binary/kernel/netbsd-PS2WSCONS.gz` | kernel (PS2 ELF, gzip'd) |
+| `playstation2/binary/kernel/netbsd-PS2WSCONS.gz` | kernel for 128 MiB (PS2 ELF, gzip'd) |
+| `playstation2/binary/kernel/netbsd-PS2WSCONS32.gz` | the same for 32 MiB |
 | `playstation2/binary/sets/*.tgz` | binary sets |
 | `images/NetBSD-*-playstation2-live.img.gz` | HDD image (root `wd0a`, swap `wd0b`) |
 
 Other kernels: `./build.sh ... kernel=PS2HDD` etc.; the configurations
 are in `sys/arch/playstation2/conf` (`PS2WSCONS` is the full one: GS
 wsdisplay, USB keyboard/mouse, DEV9 Ethernet and HDD, root on `wd0a`).
+`PS2WSCONS32` is `PS2WSCONS` with `PS2_MEMSIZE=32` and without the
+16 MiB embedded RAM disk that the bring-up configurations carry; the
+release builds both (`KERNEL_SETS` in `etc/etc.playstation2/Makefile.inc`)
+and the userland and live image are shared.
 
 ## With build-ps2.sh
 
@@ -64,10 +69,15 @@ the sets or the live image.
 
 ## Booting
 
-- Kernel: uncompress `netbsd-PS2WSCONS.gz` and start the ELF directly
-  (PCSX2 "Boot ELF", or an ELF loader on hardware). No SBIOS/RTE is used.
-  The kernel expects 128 MiB of EE RAM (`PS2_MEMSIZE=128`); in PCSX2
-  enable the extra memory option. Console: EE SIO and the GS screen.
+- Kernel: uncompress `netbsd-PS2WSCONS.gz` (128 MiB of EE RAM; in PCSX2
+  enable the extra memory option) or `netbsd-PS2WSCONS32.gz` (32 MiB,
+  extra memory off) and start the ELF directly (PCSX2 "Boot ELF", or an
+  ELF loader on hardware). No SBIOS/RTE is used. Console: EE SIO and the
+  GS screen.
+- In PCSX2 both reach a multi-user login and run Xorg. With 32 MiB about
+  29 MB is available after the kernel and a few X clients push about
+  20 MB to swap, yet starting twm, xclock and xterm took the same time
+  (about 145 s) as with 128 MiB.
 - Root: write the uncompressed live image to the DEV9 HDD (for PCSX2, use
   it as the HDD image file while PCSX2 is stopped). It carries a BSD
   disklabel in sector 1 with `wd0a` as root and `wd0b` as swap, and

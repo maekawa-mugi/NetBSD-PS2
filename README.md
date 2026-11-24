@@ -22,8 +22,12 @@ What the port does today:
 Status: developed and tested in the PCSX2 emulator only. It boots to a
 multi-user login from the HDD image, gets an address by DHCP, reaches the
 Internet, and starts Xorg (640x480, 8 bpp). Real hardware is untested.
-The kernel expects 128 MiB of EE RAM, which PCSX2 provides with its
-extra-memory option; a retail console has 32 MiB.
+
+Each build produces two kernels that share the same userland and HDD
+image: `PS2WSCONS` for 128 MiB of EE RAM (development consoles, or PCSX2
+with its extra-memory option) and `PS2WSCONS32` for the 32 MiB of a
+retail console. Both have been booted in PCSX2 with the matching memory
+size, including X11.
 
 
 Getting the source
@@ -95,7 +99,8 @@ Paths are relative to the release directory (`build/ps2/release` with
 
 | Path | Contents |
 |---|---|
-| `playstation2/binary/kernel/netbsd-PS2WSCONS.gz` | kernel, a PS2 ELF (gzip'd) |
+| `playstation2/binary/kernel/netbsd-PS2WSCONS.gz` | kernel for 128 MiB, a PS2 ELF (gzip'd) |
+| `playstation2/binary/kernel/netbsd-PS2WSCONS32.gz` | the same kernel for 32 MiB |
 | `playstation2/binary/sets/*.tgz` | binary sets |
 | `images/NetBSD-*-playstation2-live.img.gz` | HDD image with the installed system |
 
@@ -108,20 +113,25 @@ with the root file system on `wd0a` and swap on `wd0b`, and configures
 
 The configurations are in `sys/arch/playstation2/conf`. `PS2WSCONS` is
 the full one (GS wsdisplay, USB keyboard and mouse, DEV9 Ethernet and
-HDD, root on `wd0a`) and is the one shipped in the release. The others
-are smaller steps used during bring-up, such as `PS2SHELL` (RAM-disk
-root) and `PS2HDD`.
+HDD, root on `wd0a`) for 128 MiB, and `PS2WSCONS32` is the same for
+32 MiB; the release contains both (`KERNEL_SETS` in
+`etc/etc.playstation2/Makefile.inc`). The memory size is the kernel
+option `PS2_MEMSIZE` (32 or 128). The others are smaller steps used
+during bring-up, such as `PS2SHELL` (RAM-disk root) and `PS2HDD`.
 
 
 Running in PCSX2
 ----------------
 
-1. Uncompress the kernel: `gzip -d netbsd-PS2WSCONS.gz`.
+1. Uncompress the kernel that matches the memory size:
+   `gzip -d netbsd-PS2WSCONS.gz` (128 MiB) or
+   `gzip -d netbsd-PS2WSCONS32.gz` (32 MiB).
 2. Uncompress the live image and use it as the DEV9 HDD image file
    (`[DEV9/Hdd]` `HddFile` in `PCSX2.ini`, with `HddEnable = true`).
    Only change the file while PCSX2 is stopped.
-3. In the PCSX2 settings, enable full TLB emulation and the extra memory
-   option (128 MiB).
+3. In the PCSX2 settings, enable full TLB emulation. Enable the extra
+   memory option for `PS2WSCONS` (128 MiB) and leave it off for
+   `PS2WSCONS32`.
 4. For networking, enable the DEV9 Ethernet adapter (for example the
    Sockets API with DHCP interception).
 5. For input, attach a USB keyboard and, for X11, a USB mouse.
